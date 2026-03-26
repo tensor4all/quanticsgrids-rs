@@ -11,6 +11,7 @@ build-dir = "book"
 git-repository-url = "https://github.com/tensor4all/quanticsgrids-rs"
 edit-url-template = "https://github.com/tensor4all/quanticsgrids-rs/edit/main/{path}"
 site-url = "/quanticsgrids-rs/"
+mathjax-support = true
 
 [output.html.playground]
 copyable = true
