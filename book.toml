@@ -1,0 +1,19 @@
+[book]
+title = "quanticsgrids User Guide"
+authors = ["tensor4all contributors"]
+language = "en"
+src = "docs/src"
+
+[build]
+build-dir = "book"
+
+[output.html]
+git-repository-url = "https://github.com/tensor4all/quanticsgrids-rs"
+edit-url-template = "https://github.com/tensor4all/quanticsgrids-rs/edit/main/{path}"
+site-url = "/quanticsgrids-rs/"
+
+[output.html.playground]
+copyable = true
+editable = false
+runnable = false
+line-numbers = false
