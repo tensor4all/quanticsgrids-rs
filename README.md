@@ -2,6 +2,10 @@
 
 Grid structures for efficient conversion between quantics representation, grid indices, and original coordinates. This is a Rust port of [QuanticsGrids.jl](https://github.com/tensor4all/QuanticsGrids.jl).
 
+## Documentation
+
+- User guide: https://tensor4all.github.io/quanticsgrids-rs/
+
 ## Features
 
 - **InherentDiscreteGrid**: Low-level grid for integer coordinates
@@ -41,4 +45,7 @@ let local_dims = grid.local_dimensions();
 
 ## License
 
-MIT License
+Licensed under either of the following, at your option:
+
+- Apache License, Version 2.0
+- MIT license
