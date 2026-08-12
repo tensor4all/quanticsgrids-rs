@@ -8,7 +8,7 @@ fn bench_grididx_to_quantics(c: &mut Criterion) {
 
     for r in [4, 8, 12, 16] {
         let grid = InherentDiscreteGrid::builder(&[r]).build().unwrap();
-        let max_idx = 2i64.pow(r as u32);
+        let max_idx = 2usize.pow(r as u32);
         let grididx = vec![max_idx / 2];
 
         group.bench_with_input(BenchmarkId::new("1D_base2", r), &r, |b, _| {
@@ -19,7 +19,7 @@ fn bench_grididx_to_quantics(c: &mut Criterion) {
     // 2D grid
     for r in [4, 8, 12] {
         let grid = InherentDiscreteGrid::builder(&[r, r]).build().unwrap();
-        let max_idx = 2i64.pow(r as u32);
+        let max_idx = 2usize.pow(r as u32);
         let grididx = vec![max_idx / 2, max_idx / 2];
 
         group.bench_with_input(BenchmarkId::new("2D_base2", r), &r, |b, _| {
@@ -32,7 +32,7 @@ fn bench_grididx_to_quantics(c: &mut Criterion) {
         .with_base(3)
         .build()
         .unwrap();
-    let grididx = vec![3i64.pow(4)];
+    let grididx = vec![3usize.pow(4)];
     group.bench_function("1D_base3_R8", |b| {
         b.iter(|| grid.grididx_to_quantics(black_box(&grididx)))
     });
@@ -45,7 +45,7 @@ fn bench_quantics_to_grididx(c: &mut Criterion) {
 
     for r in [4, 8, 12, 16] {
         let grid = InherentDiscreteGrid::builder(&[r]).build().unwrap();
-        let quantics: Vec<i64> = vec![1; r];
+        let quantics: Vec<usize> = vec![0; r];
 
         group.bench_with_input(BenchmarkId::new("1D_base2", r), &r, |b, _| {
             b.iter(|| grid.quantics_to_grididx(black_box(&quantics)))
@@ -59,7 +59,7 @@ fn bench_quantics_to_grididx(c: &mut Criterion) {
             .build()
             .unwrap();
         let num_sites = grid.len();
-        let quantics: Vec<i64> = vec![1; num_sites];
+        let quantics: Vec<usize> = vec![0; num_sites];
 
         group.bench_with_input(BenchmarkId::new("2D_fused_base2", r), &r, |b, _| {
             b.iter(|| grid.quantics_to_grididx(black_box(&quantics)))
@@ -76,7 +76,7 @@ fn bench_origcoord_conversions(c: &mut Criterion) {
     for r in [8, 12, 16] {
         let grid = DiscretizedGrid::builder(&[r]).build().unwrap();
         let coord = vec![0.5];
-        let grididx = vec![2i64.pow(r as u32 - 1)];
+        let grididx = vec![2usize.pow(r as u32 - 1)];
 
         group.bench_with_input(
             BenchmarkId::new("origcoord_to_grididx_1D", r),

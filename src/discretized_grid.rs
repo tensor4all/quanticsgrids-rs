@@ -151,10 +151,9 @@ impl DiscretizedGrid {
     /// Get original coordinates for a dimension by index
     pub fn grid_origcoords(&self, dim: usize) -> Result<Vec<f64>> {
         if dim >= self.ndims() {
-            return Err(QuanticsGridError::GridIndexOutOfBounds {
-                dim,
-                value: dim as i64,
-                max: self.ndims() as i64,
+            return Err(QuanticsGridError::SiteIndexOutOfBounds {
+                site: dim,
+                max: self.ndims(),
             });
         }
 
@@ -185,18 +184,18 @@ impl DiscretizedGrid {
     // Core conversion functions
     // ========================================================================
 
-    /// Convert quantics indices to grid indices.
-    pub fn quantics_to_grididx(&self, quantics: &[i64]) -> Result<Vec<i64>> {
+    /// Convert quantics indices to grid indices (0-indexed).
+    pub fn quantics_to_grididx(&self, quantics: &[usize]) -> Result<Vec<usize>> {
         self.discrete_grid.quantics_to_grididx(quantics)
     }
 
-    /// Convert grid indices to quantics indices.
-    pub fn grididx_to_quantics(&self, grididx: &[i64]) -> Result<Vec<i64>> {
+    /// Convert grid indices to quantics indices (0-indexed).
+    pub fn grididx_to_quantics(&self, grididx: &[usize]) -> Result<Vec<usize>> {
         self.discrete_grid.grididx_to_quantics(grididx)
     }
 
-    /// Convert grid indices to original coordinates.
-    pub fn grididx_to_origcoord(&self, grididx: &[i64]) -> Result<Vec<f64>> {
+    /// Convert grid indices (0-indexed) to original coordinates.
+    pub fn grididx_to_origcoord(&self, grididx: &[usize]) -> Result<Vec<f64>> {
         let grididx = self.expand_grididx(grididx)?;
         self.validate_grididx(&grididx)?;
 
@@ -206,12 +205,12 @@ impl DiscretizedGrid {
             .iter()
             .zip(grididx.iter())
             .zip(step.iter())
-            .map(|((&lo, &g), &s)| lo + ((g - 1) as f64) * s)
+            .map(|((&lo, &g), &s)| lo + g as f64 * s)
             .collect())
     }
 
-    /// Convert original coordinates to grid indices.
-    pub fn origcoord_to_grididx(&self, coord: &[f64]) -> Result<Vec<i64>> {
+    /// Convert original coordinates to grid indices (0-indexed).
+    pub fn origcoord_to_grididx(&self, coord: &[f64]) -> Result<Vec<usize>> {
         let coord = self.expand_coord(coord)?;
         self.validate_origcoord(&coord)?;
 
@@ -219,30 +218,30 @@ impl DiscretizedGrid {
         let rs = self.discrete_grid.rs();
         let bases = self.discrete_grid.bases();
 
-        let indices: Vec<i64> = self
+        let indices: Vec<usize> = self
             .lower_bound
             .iter()
             .zip(coord.iter())
             .zip(step.iter())
             .zip(rs.iter().zip(bases.iter()))
             .map(|(((&lo, &c), &s), (&r, &b))| {
-                let continuous_idx = (c - lo) / s + 1.0;
+                let continuous_idx = (c - lo) / s;
                 let discrete_idx = continuous_idx.round() as i64;
-                discrete_idx.clamp(1, (b as i64).pow(r as u32))
+                discrete_idx.clamp(0, (b as i64).pow(r as u32) - 1) as usize
             })
             .collect();
 
         Ok(indices)
     }
 
-    /// Convert original coordinates to quantics indices.
-    pub fn origcoord_to_quantics(&self, coord: &[f64]) -> Result<Vec<i64>> {
+    /// Convert original coordinates to quantics indices (0-indexed).
+    pub fn origcoord_to_quantics(&self, coord: &[f64]) -> Result<Vec<usize>> {
         let grididx = self.origcoord_to_grididx(coord)?;
         self.grididx_to_quantics(&grididx)
     }
 
     /// Convert quantics indices to original coordinates.
-    pub fn quantics_to_origcoord(&self, quantics: &[i64]) -> Result<Vec<f64>> {
+    pub fn quantics_to_origcoord(&self, quantics: &[usize]) -> Result<Vec<f64>> {
         let grididx = self.quantics_to_grididx(quantics)?;
         self.grididx_to_origcoord(&grididx)
     }
@@ -251,10 +250,10 @@ impl DiscretizedGrid {
     // Private helper methods
     // ========================================================================
 
-    fn validate_grididx(&self, grididx: &[i64]) -> Result<()> {
+    fn validate_grididx(&self, grididx: &[usize]) -> Result<()> {
         let max_grididx = self.discrete_grid.max_grididx();
         for (dim, (&val, &max)) in grididx.iter().zip(max_grididx.iter()).enumerate() {
-            if val < 1 || val > max {
+            if val > max {
                 return Err(QuanticsGridError::GridIndexOutOfBounds {
                     dim,
                     value: val,
@@ -291,7 +290,8 @@ impl DiscretizedGrid {
         Ok(())
     }
 
-    fn expand_grididx(&self, grididx: &[i64]) -> Result<Vec<i64>> {
+    /// Expand a scalar or lower-dimensional input to full dimensions
+    fn expand_grididx(&self, grididx: &[usize]) -> Result<Vec<usize>> {
         let ndims = self.ndims();
         if grididx.len() == 1 && ndims > 1 {
             Ok(vec![grididx[0]; ndims])
@@ -605,11 +605,11 @@ impl DiscretizedGridBuilder {
 }
 
 /// Wrap a function to accept quantics indices
-pub fn quantics_function<F>(grid: &DiscretizedGrid, f: F) -> impl Fn(&[i64]) -> Result<f64> + '_
+pub fn quantics_function<F>(grid: &DiscretizedGrid, f: F) -> impl Fn(&[usize]) -> Result<f64> + '_
 where
     F: Fn(&[f64]) -> f64 + 'static,
 {
-    move |quantics: &[i64]| {
+    move |quantics: &[usize]| {
         let coords = grid.quantics_to_origcoord(quantics)?;
         Ok(f(&coords))
     }

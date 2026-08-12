@@ -15,8 +15,8 @@
 //!
 //! The grids support conversion between three coordinate representations:
 //!
-//! 1. **Quantics indices**: Integer values for each tensor core (1-indexed)
-//! 2. **Grid indices**: Integer positions in each dimension (1-indexed)
+//! 1. **Quantics indices**: Integer values for each tensor core (0-indexed)
+//! 2. **Grid indices**: Integer positions in each dimension (0-indexed)
 //! 3. **Original coordinates**: Continuous values in the specified domain
 //!
 //! ## Unfolding Schemes
@@ -72,11 +72,11 @@
 //! ```
 //! use quanticsgrids::DiscretizedGrid;
 //!
-//! // Custom index table: [[(:a, 1), (:b, 2)], [(:a, 2)], [(:b, 1), (:a, 3)]]
+//! // Custom index table: [[(:a, 0), (:b, 1)], [(:a, 1)], [(:b, 0), (:a, 2)]]
 //! let index_table = vec![
-//!     vec![("a".to_string(), 1), ("b".to_string(), 2)],
-//!     vec![("a".to_string(), 2)],
-//!     vec![("b".to_string(), 1), ("a".to_string(), 3)],
+//!     vec![("a".to_string(), 0), ("b".to_string(), 1)],
+//!     vec![("a".to_string(), 1)],
+//!     vec![("b".to_string(), 0), ("a".to_string(), 2)],
 //! ];
 //!
 //! let grid = DiscretizedGrid::from_index_table(&["a", "b"], index_table)
@@ -156,7 +156,7 @@ pub enum UnfoldingScheme {
 }
 
 /// A quantics index entry: (variable_name, bit_number)
-/// bit_number is 1-indexed (1 = most significant bit)
+/// bit_number is 0-indexed (0 = most significant bit)
 pub type QuanticsIndex = (String, usize);
 
 /// Index table: structure defining tensor train layout

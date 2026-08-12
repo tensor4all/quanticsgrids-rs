@@ -7,8 +7,8 @@ fn main() -> quanticsgrids::Result<()> {
         .include_endpoint(true)
         .build()?;
 
-    assert!((grid.grididx_to_origcoord(&[1])?[0] - 0.0).abs() < 1e-12);
-    assert!((grid.grididx_to_origcoord(&[2_i64.pow(r as u32)])?[0] - 1.0).abs() < 1e-12);
+    assert!((grid.grididx_to_origcoord(&[0])?[0] - 0.0).abs() < 1e-12);
+    assert!((grid.grididx_to_origcoord(&[2usize.pow(r as u32) - 1])?[0] - 1.0).abs() < 1e-12);
 
     Ok(())
 }

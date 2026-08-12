@@ -9,8 +9,8 @@ fn main() -> quanticsgrids::Result<()> {
         .with_base(base)
         .build()?;
 
-    let quantics = vec![base as i64; r];
-    let grididx = vec![(base as i64).pow(r as u32)];
+    let quantics = vec![base - 1; r];
+    let grididx = vec![base.pow(r as u32) - 1];
     let origcoord = vec![(base as i64).pow(r as u32) - 1];
 
     assert_eq!(grid.quantics_to_grididx(&quantics)?, grididx);
