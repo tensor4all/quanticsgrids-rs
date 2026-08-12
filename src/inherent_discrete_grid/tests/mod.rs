@@ -13,7 +13,7 @@ fn test_basic_1d_grid() {
     assert_eq!(grid.len(), 3); // 3 sites for fused scheme
     assert_eq!(grid.base(), 2);
     assert_eq!(grid.rs(), &[3]);
-    assert_eq!(grid.max_grididx(), &[8]);
+    assert_eq!(grid.max_grididx(), &[7]); // 2^3 - 1
 }
 
 #[test]
@@ -25,7 +25,7 @@ fn test_basic_2d_grid() {
 
     assert_eq!(grid.ndims(), 2);
     assert_eq!(grid.variable_names(), &["x", "y"]);
-    assert_eq!(grid.max_grididx(), &[8, 4]);
+    assert_eq!(grid.max_grididx(), &[7, 3]); // 2^3 - 1, 2^2 - 1
 }
 
 #[test]
@@ -35,7 +35,7 @@ fn test_grididx_to_quantics_roundtrip() {
         .build()
         .unwrap();
 
-    let grididx = vec![5i64, 2];
+    let grididx = vec![4usize, 1];
     let quantics = grid.grididx_to_quantics(&grididx).unwrap();
     let back = grid.quantics_to_grididx(&quantics).unwrap();
     assert_eq!(back, grididx);
@@ -45,8 +45,8 @@ fn test_grididx_to_quantics_roundtrip() {
 fn test_all_grididx_roundtrip() {
     let grid = InherentDiscreteGrid::builder(&[2, 2]).build().unwrap();
 
-    for x in 1..=4 {
-        for y in 1..=4 {
+    for x in 0..4 {
+        for y in 0..4 {
             let grididx = vec![x, y];
             let quantics = grid.grididx_to_quantics(&grididx).unwrap();
             let back = grid.quantics_to_grididx(&quantics).unwrap();
@@ -64,8 +64,8 @@ fn test_interleaved_scheme() {
 
     // Interleaved: [1_1], [2_1], [1_2], [2_2]
     assert_eq!(grid.len(), 4);
-    for x in 1..=4 {
-        for y in 1..=4 {
+    for x in 0..4 {
+        for y in 0..4 {
             let grididx = vec![x, y];
             let quantics = grid.grididx_to_quantics(&grididx).unwrap();
             let back = grid.quantics_to_grididx(&quantics).unwrap();
@@ -82,9 +82,9 @@ fn test_base3_grid() {
         .unwrap();
 
     assert_eq!(grid.base(), 3);
-    assert_eq!(grid.max_grididx(), &[9]); // 3^2 = 9
+    assert_eq!(grid.max_grididx(), &[8]); // 3^2 - 1 = 8
 
-    for x in 1..=9 {
+    for x in 0..9 {
         let grididx = vec![x];
         let quantics = grid.grididx_to_quantics(&grididx).unwrap();
         let back = grid.quantics_to_grididx(&quantics).unwrap();
@@ -100,17 +100,17 @@ fn test_origcoord_conversion() {
         .build()
         .unwrap();
 
-    // origin=0, step=1, max_grididx=4
-    // grididx 1 -> origcoord 0
-    // grididx 4 -> origcoord 3
-    let coord = grid.grididx_to_origcoord(&[1]).unwrap();
+    // origin=0, step=1, max_grididx=3 (0-based: 2^2 - 1)
+    // grididx 0 -> origcoord 0
+    // grididx 3 -> origcoord 3
+    let coord = grid.grididx_to_origcoord(&[0]).unwrap();
     assert_eq!(coord, vec![0]);
 
-    let coord = grid.grididx_to_origcoord(&[4]).unwrap();
+    let coord = grid.grididx_to_origcoord(&[3]).unwrap();
     assert_eq!(coord, vec![3]);
 
     let idx = grid.origcoord_to_grididx(&[2]).unwrap();
-    assert_eq!(idx, vec![3]);
+    assert_eq!(idx, vec![2]);
 }
 
 #[test]
@@ -134,8 +134,8 @@ fn test_error_duplicate_variable_names() {
 fn test_error_quantics_out_of_range() {
     let grid = InherentDiscreteGrid::builder(&[2]).build().unwrap();
     // Rs=[2] with Fused creates 2 sites, each with dim 2
-    // So quantics should have length 2, and each value should be in [1, 2]
-    let result = grid.quantics_to_grididx(&[5, 1]); // 5 is out of range [1, 2]
+    // So quantics should have length 2, and each value should be in [0, 1]
+    let result = grid.quantics_to_grididx(&[5, 1]); // 5 is out of range [0, 1]
     assert!(matches!(
         result,
         Err(QuanticsGridError::QuanticsOutOfRange { .. })
@@ -145,7 +145,7 @@ fn test_error_quantics_out_of_range() {
 #[test]
 fn test_error_grididx_out_of_bounds() {
     let grid = InherentDiscreteGrid::builder(&[2]).build().unwrap();
-    let result = grid.grididx_to_quantics(&[5]); // max is 4
+    let result = grid.grididx_to_quantics(&[5]); // max is 3 (2^2 - 1)
     assert!(matches!(
         result,
         Err(QuanticsGridError::GridIndexOutOfBounds { .. })
@@ -171,9 +171,9 @@ fn test_local_dimensions() {
 fn test_from_index_table() {
     // Create a custom index table like in Julia: [[(:a, 1), (:b, 2)], [(:a, 2)], [(:b, 1), (:a, 3)]]
     let index_table = vec![
-        vec![("a".to_string(), 1), ("b".to_string(), 2)],
-        vec![("a".to_string(), 2)],
-        vec![("b".to_string(), 1), ("a".to_string(), 3)],
+        vec![("a".to_string(), 0), ("b".to_string(), 1)],
+        vec![("a".to_string(), 1)],
+        vec![("b".to_string(), 0), ("a".to_string(), 2)],
     ];
 
     let grid = InherentDiscreteGrid::from_index_table(&["a", "b"], index_table)
@@ -185,8 +185,8 @@ fn test_from_index_table() {
     assert_eq!(grid.len(), 3);
 
     // Test roundtrip
-    for x in 1..=8 {
-        for y in 1..=4 {
+    for x in 0..8 {
+        for y in 0..4 {
             let grididx = vec![x, y];
             let quantics = grid.grididx_to_quantics(&grididx).unwrap();
             let back = grid.quantics_to_grididx(&quantics).unwrap();
@@ -225,12 +225,12 @@ fn test_3d_grid_interleaved_and_fused() {
                     assert_eq!(grid.local_dimensions(), vec![8; 5]); // 2^3 = 8
                 }
 
-                let test_indices: &[&[i64]] = &[
-                    &[1, 1, 1],
-                    &[1, 1, 2],
-                    &[1, 25, 1],
-                    &[14, 1, 1],
-                    &[25, 25, 25],
+                let test_indices: &[&[usize]] = &[
+                    &[0, 0, 0],
+                    &[0, 0, 1],
+                    &[0, 24, 0],
+                    &[13, 0, 0],
+                    &[24, 24, 24],
                 ];
 
                 for &idx in test_indices {
@@ -243,7 +243,7 @@ fn test_3d_grid_interleaved_and_fused() {
                     } else {
                         assert_eq!(q.len(), 3 * 5);
                     }
-                    assert!(q.iter().all(|&v| (1..=8).contains(&v)));
+                    assert!(q.iter().all(|&v| (0..8).contains(&v)));
                     assert_eq!(grid.quantics_to_origcoord(&q).unwrap(), c);
                 }
             }
@@ -346,12 +346,12 @@ fn test_coordinate_conversions() {
         .unwrap();
 
     // Test grididx_to_origcoord and origcoord_to_grididx roundtrip
-    let test_gridindices: &[&[i64]] = &[
-        &[1, 1, 1],
-        &[1, 1, 2],
-        &[1, 8, 1],
-        &[4, 1, 1],
-        &[16, 16, 16],
+    let test_gridindices: &[&[usize]] = &[
+        &[0, 0, 0],
+        &[0, 0, 1],
+        &[0, 7, 0],
+        &[3, 0, 0],
+        &[15, 15, 15],
     ];
     for &grididx in test_gridindices {
         let origcoord = grid.grididx_to_origcoord(grididx).unwrap();
@@ -361,13 +361,13 @@ fn test_coordinate_conversions() {
         );
     }
 
-    // Test origcoord calculation formula
-    let grididx = [3i64, 5, 7];
+    // Test origcoord calculation formula (coord = origin + grididx * step)
+    let grididx = [3usize, 5, 7];
     let expected_origcoord: Vec<i64> = origin
         .iter()
         .zip(step.iter())
         .zip(grididx.iter())
-        .map(|((&o, &s), &g)| o + s * (g - 1))
+        .map(|((&o, &s), &g)| o + s * g as i64)
         .collect();
     assert_eq!(
         grid.grididx_to_origcoord(&grididx).unwrap(),
@@ -375,9 +375,9 @@ fn test_coordinate_conversions() {
     );
 
     // Test boundary cases
-    let max = (base as i64).pow(r as u32);
-    let min_grididx = [1i64, 1, 1];
-    let max_grididx = [max, max, max];
+    let max = (base as i64).pow(r as u32); // base^R: number of grid points per dim
+    let min_grididx = [0usize, 0, 0];
+    let max_grididx = [(max - 1) as usize, (max - 1) as usize, (max - 1) as usize];
     assert_eq!(
         grid.grididx_to_origcoord(&min_grididx).unwrap(),
         origin.to_vec()
@@ -405,7 +405,7 @@ fn test_quantics_conversions_fused() {
         .build()
         .unwrap();
 
-    let test_gridindices: &[&[i64]] = &[&[1, 1], &[1, 2], &[2, 1], &[4, 8], &[8, 8]];
+    let test_gridindices: &[&[usize]] = &[&[0, 0], &[0, 1], &[1, 0], &[3, 7], &[7, 7]];
     for &grididx in test_gridindices {
         let quantics = grid_fused.grididx_to_quantics(grididx).unwrap();
         assert_eq!(
@@ -413,8 +413,8 @@ fn test_quantics_conversions_fused() {
             grididx.to_vec()
         );
         assert_eq!(quantics.len(), r); // Fused should have R quantics
-        let max_dim = (base * base) as i64; // base^2 for 2D fused
-        assert!(quantics.iter().all(|&v| v >= 1 && v <= max_dim));
+        let max_dim = base * base; // base^2 for 2D fused
+        assert!(quantics.iter().all(|&v| v < max_dim));
     }
 }
 
@@ -429,7 +429,7 @@ fn test_quantics_conversions_interleaved() {
         .build()
         .unwrap();
 
-    let test_gridindices: &[&[i64]] = &[&[1, 1], &[1, 2], &[2, 1], &[4, 8], &[8, 8]];
+    let test_gridindices: &[&[usize]] = &[&[0, 0], &[0, 1], &[1, 0], &[3, 7], &[7, 7]];
     for &grididx in test_gridindices {
         let quantics = grid_interleaved.grididx_to_quantics(grididx).unwrap();
         assert_eq!(
@@ -437,7 +437,7 @@ fn test_quantics_conversions_interleaved() {
             grididx.to_vec()
         );
         assert_eq!(quantics.len(), 2 * r); // Interleaved should have 2*R quantics
-        assert!(quantics.iter().all(|&v| v >= 1 && v <= base as i64));
+        assert!(quantics.iter().all(|&v| v < base));
     }
 
     // Wrong length quantics should error
@@ -460,14 +460,12 @@ fn test_quantics_origcoord_roundtrip() {
         .build()
         .unwrap();
 
-    // Julia: rand(1:2^2, R) where R=4, fused 2D so each site is base^2=4
+    // Julia: rand(0:2^2-1, R) where R=4, fused 2D so each site is base^2=4
     let dims = grid.local_dimensions();
     let mut rng = StdRng::seed_from_u64(42);
 
     for _ in 0..20 {
-        let quantics: Vec<i64> = (0..r)
-            .map(|i| rng.random_range(1..=dims[i] as i64))
-            .collect();
+        let quantics: Vec<usize> = (0..r).map(|i| rng.random_range(0..dims[i])).collect();
 
         let origcoord = grid.quantics_to_origcoord(&quantics).unwrap();
         assert_eq!(grid.origcoord_to_quantics(&origcoord).unwrap(), quantics);
@@ -547,9 +545,9 @@ fn test_different_bases() {
             .build()
             .unwrap();
 
-        let max = (base as i64).pow(r as u32);
-        let max_grididx = [max, max];
-        let min_grididx = [1i64, 1];
+        let max = (base as i64).pow(r as u32); // base^R
+        let max_grididx = [(max - 1) as usize; 2];
+        let min_grididx = [0usize, 0];
 
         // Test coordinate conversion with different bases
         let max_origcoord = grid.grididx_to_origcoord(&max_grididx).unwrap();
@@ -565,10 +563,10 @@ fn test_different_bases() {
         );
 
         // Test quantics conversion with different bases
-        let quantics = grid.grididx_to_quantics(&[2, 3]).unwrap();
-        let max_dim = (base * base) as i64; // For fused 2D
-        assert!(quantics.iter().all(|&v| v >= 1 && v <= max_dim));
-        assert_eq!(grid.quantics_to_grididx(&quantics).unwrap(), vec![2, 3]);
+        let quantics = grid.grididx_to_quantics(&[1, 2]).unwrap();
+        let max_dim = base * base; // For fused 2D
+        assert!(quantics.iter().all(|&v| v < max_dim));
+        assert_eq!(grid.quantics_to_grididx(&quantics).unwrap(), vec![1, 2]);
     }
 }
 
@@ -587,7 +585,7 @@ fn test_comprehensive_conversion() {
         .build()
         .unwrap();
 
-    let initial_grididx = vec![2i64, 3];
+    let initial_grididx = vec![1usize, 2];
 
     // Build all representations
     let quantics = grid.grididx_to_quantics(&initial_grididx).unwrap();
@@ -626,9 +624,9 @@ fn test_edge_cases_and_boundaries() {
         .with_step(&[5])
         .build()
         .unwrap();
-    assert_eq!(grid_min.grididx_to_origcoord(&[1]).unwrap(), vec![10]);
+    assert_eq!(grid_min.grididx_to_origcoord(&[0]).unwrap(), vec![10]);
     assert_eq!(
-        grid_min.grididx_to_origcoord(&[base as i64]).unwrap(),
+        grid_min.grididx_to_origcoord(&[base - 1]).unwrap(),
         vec![10 + 5 * (base as i64 - 1)]
     );
 
@@ -638,9 +636,9 @@ fn test_edge_cases_and_boundaries() {
         .with_step(&[100, 200])
         .build()
         .unwrap();
-    let expected_coord = vec![100i64, 400]; // (0 + 100*(2-1), 0 + 200*(3-1))
+    let expected_coord = vec![100i64, 400]; // (0 + 100*1, 0 + 200*2)
     assert_eq!(
-        grid_large_step.grididx_to_origcoord(&[2, 3]).unwrap(),
+        grid_large_step.grididx_to_origcoord(&[1, 2]).unwrap(),
         expected_coord
     );
 
@@ -650,7 +648,7 @@ fn test_edge_cases_and_boundaries() {
         .with_step(&[2, 3])
         .build()
         .unwrap();
-    let min_coord = grid_neg.grididx_to_origcoord(&[1, 1]).unwrap();
+    let min_coord = grid_neg.grididx_to_origcoord(&[0, 0]).unwrap();
     assert_eq!(min_coord, vec![-10, -20]);
 
     // Single dimension roundtrip
@@ -659,7 +657,7 @@ fn test_edge_cases_and_boundaries() {
         .with_step(&[3])
         .build()
         .unwrap();
-    for i in 1..=(base.pow(3) as i64) {
+    for i in 0..base.pow(3) {
         let coord = grid_1d.grididx_to_origcoord(&[i]).unwrap();
         assert_eq!(grid_1d.origcoord_to_grididx(&coord).unwrap(), vec![i]);
     }
@@ -690,7 +688,7 @@ fn test_consistency_between_schemes() {
         .unwrap();
 
     // Coordinate conversions should be consistent between schemes
-    let test_gridindices: &[&[i64]] = &[&[1, 1, 1], &[2, 3, 4], &[8, 16, 16]];
+    let test_gridindices: &[&[usize]] = &[&[0, 0, 0], &[1, 2, 3], &[7, 15, 15]];
     for &grididx in test_gridindices {
         let coord_fused = grid_fused.grididx_to_origcoord(grididx).unwrap();
         let coord_interleaved = grid_interleaved.grididx_to_origcoord(grididx).unwrap();
@@ -709,7 +707,7 @@ fn test_consistency_between_schemes() {
     }
 
     // Quantics differ but origcoord results are the same
-    let grididx = [3i64, 5, 7];
+    let grididx = [3usize, 5, 7];
     let quantics_fused = grid_fused.grididx_to_quantics(&grididx).unwrap();
     let quantics_interleaved = grid_interleaved.grididx_to_quantics(&grididx).unwrap();
 
@@ -747,11 +745,11 @@ fn test_high_dimensional_grids() {
     assert_eq!(grid.step(), step.as_slice());
 
     // Test coordinate conversion with all 2s
-    let grididx: Vec<i64> = vec![2; d];
+    let grididx: Vec<usize> = vec![1; d];
     let expected_origcoord: Vec<i64> = origin
         .iter()
         .zip(step.iter())
-        .map(|(&o, &s)| o + s) // grididx=2 means offset=1
+        .map(|(&o, &s)| o + s) // grididx=1 means offset=1
         .collect();
     assert_eq!(
         grid.grididx_to_origcoord(&grididx).unwrap(),
@@ -781,10 +779,10 @@ fn test_stress_conversions() {
 
     let max = (base as i64).pow(r as u32);
 
-    // Julia: 100 random grididx from rand(1:base^R) per dimension
+    // Julia: 100 random grididx from rand(0:base^R-1) per dimension
     let mut rng = StdRng::seed_from_u64(42);
     for _ in 0..100 {
-        let grididx: Vec<i64> = (0..3).map(|_| rng.random_range(1..=max)).collect();
+        let grididx: Vec<usize> = (0..3).map(|_| rng.random_range(0..max as usize)).collect();
 
         let origcoord = grid.grididx_to_origcoord(&grididx).unwrap();
         assert_eq!(grid.origcoord_to_grididx(&origcoord).unwrap(), grididx);
@@ -815,10 +813,10 @@ fn test_zero_step_error() {
 #[test]
 fn test_custom_indextable_basic() {
     let index_table = vec![
-        vec![("x".to_string(), 1)],                       // site 1: x_1
-        vec![("x".to_string(), 2)],                       // site 2: x_2
-        vec![("y".to_string(), 1)],                       // site 3: y_1
-        vec![("x".to_string(), 3), ("y".to_string(), 2)], // site 4: x_3, y_2
+        vec![("x".to_string(), 0)],                       // site 1: x_1
+        vec![("x".to_string(), 1)],                       // site 2: x_2
+        vec![("y".to_string(), 0)],                       // site 3: y_1
+        vec![("x".to_string(), 2), ("y".to_string(), 1)], // site 4: x_3, y_2
     ];
 
     let grid = InherentDiscreteGrid::from_index_table(&["x", "y"], index_table)
@@ -839,7 +837,7 @@ fn test_custom_indextable_basic() {
     assert_eq!(grid.local_dimensions(), vec![2, 2, 2, 4]);
 
     // Test coordinate conversions
-    let grididx = [3i64, 2];
+    let grididx = [2usize, 1];
     let origcoord = grid.grididx_to_origcoord(&grididx).unwrap();
     assert_eq!(
         grid.origcoord_to_grididx(&origcoord).unwrap(),
@@ -860,15 +858,15 @@ fn test_custom_indextable_basic() {
 #[test]
 fn test_complex_indextable_mixed_sites() {
     let index_table = vec![
-        vec![("a".to_string(), 1), ("b".to_string(), 1)], // site 1
-        vec![("c".to_string(), 1)],                       // site 2
+        vec![("a".to_string(), 0), ("b".to_string(), 0)], // site 1
+        vec![("c".to_string(), 0)],                       // site 2
         vec![
-            ("a".to_string(), 2),
-            ("b".to_string(), 2),
-            ("c".to_string(), 2),
+            ("a".to_string(), 1),
+            ("b".to_string(), 1),
+            ("c".to_string(), 1),
         ], // site 3
-        vec![("a".to_string(), 3)],                       // site 4
-        vec![("b".to_string(), 3), ("c".to_string(), 3)], // site 5
+        vec![("a".to_string(), 2)],                       // site 4
+        vec![("b".to_string(), 2), ("c".to_string(), 2)], // site 5
     ];
 
     let grid = InherentDiscreteGrid::from_index_table(&["a", "b", "c"], index_table)
@@ -901,7 +899,7 @@ fn test_complex_indextable_mixed_sites() {
     ));
 
     // Test coordinate conversions
-    let test_gridindices: &[&[i64]] = &[&[1, 1, 1], &[2, 3, 1], &[9, 27, 27], &[5, 10, 15]];
+    let test_gridindices: &[&[usize]] = &[&[0, 0, 0], &[1, 2, 0], &[8, 26, 26], &[4, 9, 14]];
     for &grididx in test_gridindices {
         let max_valid = grididx
             .iter()
@@ -917,7 +915,7 @@ fn test_complex_indextable_mixed_sites() {
             let quantics = grid.grididx_to_quantics(grididx).unwrap();
             assert_eq!(quantics.len(), 5);
             for (i, &q) in quantics.iter().enumerate() {
-                assert!(q >= 1 && q <= expected_localdims[i] as i64);
+                assert!(q < expected_localdims[i]);
             }
             assert_eq!(
                 grid.quantics_to_grididx(&quantics).unwrap(),
@@ -932,14 +930,14 @@ fn test_complex_indextable_mixed_sites() {
 fn test_asymmetric_indextable() {
     let index_table = vec![
         vec![
+            ("x".to_string(), 0),
             ("x".to_string(), 1),
             ("x".to_string(), 2),
             ("x".to_string(), 3),
-            ("x".to_string(), 4),
         ], // site 1: all x
-        vec![("y".to_string(), 1)],                       // site 2
-        vec![("y".to_string(), 2)],                       // site 3
-        vec![("z".to_string(), 1), ("z".to_string(), 2)], // site 4
+        vec![("y".to_string(), 0)],                       // site 2
+        vec![("y".to_string(), 1)],                       // site 3
+        vec![("z".to_string(), 0), ("z".to_string(), 1)], // site 4
     ];
 
     let grid = InherentDiscreteGrid::from_index_table(&["x", "y", "z"], index_table)
@@ -954,16 +952,16 @@ fn test_asymmetric_indextable() {
     assert_eq!(grid.local_dimensions(), vec![16, 2, 2, 4]);
 
     // Test boundary cases
-    let max_x = 2i64.pow(4); // 16
-    let max_y = 2i64.pow(2); // 4
-    let max_z = 2i64.pow(2); // 4
+    let max_x = 2usize.pow(4); // 16
+    let max_y = 2usize.pow(2); // 4
+    let max_z = 2usize.pow(2); // 4
 
-    let grididx = [max_x, max_y, max_z];
+    let grididx = [max_x - 1, max_y - 1, max_z - 1];
     let origcoord = grid.grididx_to_origcoord(&grididx).unwrap();
     let expected_origcoord = vec![
-        10 * (max_x - 1),
-        100 + 5 * (max_y - 1),
-        -50 + 2 * (max_z - 1),
+        10 * (max_x as i64 - 1),
+        100 + 5 * (max_y as i64 - 1),
+        -50 + 2 * (max_z as i64 - 1),
     ];
     assert_eq!(origcoord, expected_origcoord);
     assert_eq!(
@@ -976,11 +974,11 @@ fn test_asymmetric_indextable() {
 #[test]
 fn test_single_site_indextable() {
     let index_table = vec![vec![
+        ("x".to_string(), 0),
         ("x".to_string(), 1),
         ("x".to_string(), 2),
-        ("x".to_string(), 3),
+        ("y".to_string(), 0),
         ("y".to_string(), 1),
-        ("y".to_string(), 2),
     ]];
 
     let grid = InherentDiscreteGrid::from_index_table(&["x", "y"], index_table)
@@ -994,7 +992,7 @@ fn test_single_site_indextable() {
     assert_eq!(grid.len(), 1);
     assert_eq!(grid.local_dimensions(), vec![32]); // 2^5
 
-    let grididx = [4i64, 3];
+    let grididx = [3usize, 2];
     let origcoord = grid.grididx_to_origcoord(&grididx).unwrap();
     assert_eq!(
         grid.origcoord_to_grididx(&origcoord).unwrap(),
@@ -1003,7 +1001,7 @@ fn test_single_site_indextable() {
 
     let quantics = grid.grididx_to_quantics(&grididx).unwrap();
     assert_eq!(quantics.len(), 1);
-    assert!(quantics[0] >= 1 && quantics[0] <= 32);
+    assert!(quantics[0] < 32);
     assert_eq!(
         grid.quantics_to_grididx(&quantics).unwrap(),
         grididx.to_vec()
@@ -1014,11 +1012,11 @@ fn test_single_site_indextable() {
 #[test]
 fn test_maximum_fragmentation() {
     let index_table = vec![
+        vec![("a".to_string(), 0)],
         vec![("a".to_string(), 1)],
         vec![("a".to_string(), 2)],
-        vec![("a".to_string(), 3)],
+        vec![("b".to_string(), 0)],
         vec![("b".to_string(), 1)],
-        vec![("b".to_string(), 2)],
     ];
 
     let grid = InherentDiscreteGrid::from_index_table(&["a", "b"], index_table)
@@ -1033,12 +1031,12 @@ fn test_maximum_fragmentation() {
     assert_eq!(grid.local_dimensions(), vec![3; 5]);
 
     // Test conversions
-    let test_gridindices: &[&[i64]] = &[&[1, 1], &[3, 3], &[9, 9], &[27, 9]];
+    let test_gridindices: &[&[usize]] = &[&[0, 0], &[2, 2], &[8, 8], &[26, 8]];
     for &grididx in test_gridindices {
         let valid = grididx
             .iter()
             .zip(grid.max_grididx().iter())
-            .all(|(&g, &m)| g >= 1 && g <= m);
+            .all(|(&g, &m)| g <= m);
         if valid {
             let origcoord = grid.grididx_to_origcoord(grididx).unwrap();
             assert_eq!(
@@ -1048,7 +1046,7 @@ fn test_maximum_fragmentation() {
 
             let quantics = grid.grididx_to_quantics(grididx).unwrap();
             assert_eq!(quantics.len(), 5);
-            assert!(quantics.iter().all(|&v| (1..=3).contains(&v)));
+            assert!(quantics.iter().all(|&v| (0..3).contains(&v)));
             assert_eq!(
                 grid.quantics_to_grididx(&quantics).unwrap(),
                 grididx.to_vec()
@@ -1061,13 +1059,13 @@ fn test_maximum_fragmentation() {
 #[test]
 fn test_complex_indextable_base5() {
     let index_table = vec![
-        vec![("u".to_string(), 1), ("v".to_string(), 1)], // site 1
-        vec![("w".to_string(), 1), ("w".to_string(), 2)], // site 2
-        vec![("u".to_string(), 2)],                       // site 3
+        vec![("u".to_string(), 0), ("v".to_string(), 0)], // site 1
+        vec![("w".to_string(), 0), ("w".to_string(), 1)], // site 2
+        vec![("u".to_string(), 1)],                       // site 3
         vec![
-            ("v".to_string(), 2),
-            ("u".to_string(), 3),
-            ("w".to_string(), 3),
+            ("v".to_string(), 1),
+            ("u".to_string(), 2),
+            ("w".to_string(), 2),
         ], // site 4
     ];
 
@@ -1084,7 +1082,7 @@ fn test_complex_indextable_base5() {
     assert_eq!(grid.local_dimensions(), vec![25, 25, 5, 125]);
 
     // Test minimum
-    let grididx = [1i64, 1, 1];
+    let grididx = [0usize, 0, 0];
     let origcoord = grid.grididx_to_origcoord(&grididx).unwrap();
     assert_eq!(origcoord, vec![-5, 0, 10]);
     assert_eq!(
@@ -1093,9 +1091,9 @@ fn test_complex_indextable_base5() {
     );
 
     // Test maximum
-    let max_grididx = [125i64, 25, 125]; // 5^3, 5^2, 5^3
+    let max_grididx = [124usize, 24, 124]; // 5^3-1, 5^2-1, 5^3-1
     let max_origcoord = grid.grididx_to_origcoord(&max_grididx).unwrap();
-    let expected_max = vec![-5 + 3 * (125 - 1), 7 * (25 - 1), 10 + 2 * (125 - 1)];
+    let expected_max = vec![-5 + 3 * 124, 7 * 24, 10 + 2 * 124];
     assert_eq!(max_origcoord, expected_max);
     assert_eq!(
         grid.origcoord_to_grididx(&max_origcoord).unwrap(),
@@ -1103,13 +1101,13 @@ fn test_complex_indextable_base5() {
     );
 
     // Test quantics conversions
-    let test_grididx = [10i64, 5, 20];
+    let test_grididx = [9usize, 4, 19];
     let quantics = grid.grididx_to_quantics(&test_grididx).unwrap();
     assert_eq!(quantics.len(), 4);
-    assert!(quantics[0] >= 1 && quantics[0] <= 25); // site 1
-    assert!(quantics[1] >= 1 && quantics[1] <= 25); // site 2
-    assert!(quantics[2] >= 1 && quantics[2] <= 5); // site 3
-    assert!(quantics[3] >= 1 && quantics[3] <= 125); // site 4
+    assert!(quantics[0] < 25); // site 1
+    assert!(quantics[1] < 25); // site 2
+    assert!(quantics[2] < 5); // site 3
+    assert!(quantics[3] < 125); // site 4
     assert_eq!(
         grid.quantics_to_grididx(&quantics).unwrap(),
         test_grididx.to_vec()
@@ -1120,15 +1118,15 @@ fn test_complex_indextable_base5() {
 #[test]
 fn test_comprehensive_indextable() {
     let index_table = vec![
-        vec![("k_x".to_string(), 1), ("k_y".to_string(), 1)], // site 1
-        vec![("w".to_string(), 1), ("t".to_string(), 1)],     // site 2
-        vec![("k_x".to_string(), 2)],                         // site 3
-        vec![("k_y".to_string(), 2), ("w".to_string(), 2)],   // site 4
-        vec![("t".to_string(), 2), ("t".to_string(), 3)],     // site 5
+        vec![("k_x".to_string(), 0), ("k_y".to_string(), 0)], // site 1
+        vec![("w".to_string(), 0), ("t".to_string(), 0)],     // site 2
+        vec![("k_x".to_string(), 1)],                         // site 3
+        vec![("k_y".to_string(), 1), ("w".to_string(), 1)],   // site 4
+        vec![("t".to_string(), 1), ("t".to_string(), 2)],     // site 5
         vec![
-            ("k_x".to_string(), 3),
-            ("k_y".to_string(), 3),
-            ("w".to_string(), 3),
+            ("k_x".to_string(), 2),
+            ("k_y".to_string(), 2),
+            ("w".to_string(), 2),
         ], // site 6
     ];
 
@@ -1147,11 +1145,11 @@ fn test_comprehensive_indextable() {
 
     // Test deterministic conversions over all possible grid indices (8^4 is too many,
     // so sample systematically)
-    let max = 8i64; // 2^3
-    for kx in [1, 2, 4, 7, max] {
-        for ky in [1, 3, max] {
-            for w in [1, 5, max] {
-                for t in [1, max / 2, max] {
+    let max = 7usize; // 2^3 - 1
+    for kx in [0, 1, 3, 6, max] {
+        for ky in [0, 2, max] {
+            for w in [0, 4, max] {
+                for t in [0, max / 2, max] {
                     let grididx = vec![kx, ky, w, t];
 
                     let origcoord = grid.grididx_to_origcoord(&grididx).unwrap();
@@ -1160,7 +1158,7 @@ fn test_comprehensive_indextable() {
                     let quantics = grid.grididx_to_quantics(&grididx).unwrap();
                     assert_eq!(quantics.len(), 6);
                     for (i, &q) in quantics.iter().enumerate() {
-                        assert!(q >= 1 && q <= expected_localdims[i] as i64);
+                        assert!(q < expected_localdims[i]);
                     }
                     assert_eq!(grid.quantics_to_grididx(&quantics).unwrap(), grididx);
 
@@ -1178,9 +1176,9 @@ fn test_comprehensive_indextable() {
 fn test_indextable_validation() {
     // Valid indextable should work
     let valid_table = vec![
-        vec![("x".to_string(), 1), ("y".to_string(), 1)],
-        vec![("x".to_string(), 2)],
-        vec![("y".to_string(), 2)],
+        vec![("x".to_string(), 0), ("y".to_string(), 0)],
+        vec![("x".to_string(), 1)],
+        vec![("y".to_string(), 1)],
     ];
     let grid = InherentDiscreteGrid::from_index_table(&["x", "y"], valid_table)
         .with_origin(&[1, 1])
@@ -1191,8 +1189,8 @@ fn test_indextable_validation() {
 
     // Unknown variable should error
     let invalid_unknown = vec![
-        vec![("x".to_string(), 1), ("y".to_string(), 1)],
-        vec![("z".to_string(), 1)], // z is not in variable names
+        vec![("x".to_string(), 0), ("y".to_string(), 0)],
+        vec![("z".to_string(), 0)], // z is not in variable names
     ];
     let result = InherentDiscreteGrid::from_index_table(&["x", "y"], invalid_unknown)
         .with_origin(&[1, 1])
@@ -1207,8 +1205,8 @@ fn test_indextable_validation() {
     // from_index_table counts occurrences: x appears at bits 1 and 3 -> Rs_x=2
     // But bit 3 > Rs_x=2, so InvalidBitNumber is the resulting error.
     let invalid_missing = vec![
-        vec![("x".to_string(), 1), ("y".to_string(), 1)],
-        vec![("x".to_string(), 3), ("y".to_string(), 2)],
+        vec![("x".to_string(), 0), ("y".to_string(), 0)],
+        vec![("x".to_string(), 2), ("y".to_string(), 1)],
     ];
     let result = InherentDiscreteGrid::from_index_table(&["x", "y"], invalid_missing)
         .with_origin(&[1, 1])
@@ -1221,8 +1219,8 @@ fn test_indextable_validation() {
 
     // Repeated index should error
     let invalid_repeated = vec![
-        vec![("x".to_string(), 1), ("y".to_string(), 1)],
-        vec![("x".to_string(), 1), ("y".to_string(), 2)], // x bit 1 repeated
+        vec![("x".to_string(), 0), ("y".to_string(), 0)],
+        vec![("x".to_string(), 0), ("y".to_string(), 1)], // x bit 1 repeated
     ];
     let result = InherentDiscreteGrid::from_index_table(&["x", "y"], invalid_repeated)
         .with_origin(&[1, 1])
@@ -1267,7 +1265,7 @@ fn test_constructor_with_variable_names_and_rs() {
     assert_eq!(grid2.base(), 3);
 
     // Roundtrip
-    let test_grididx = [2i64, 3, 4];
+    let test_grididx = [1usize, 2, 3];
     let origcoord = grid2.grididx_to_origcoord(&test_grididx).unwrap();
     assert_eq!(
         grid2.origcoord_to_grididx(&origcoord).unwrap(),
@@ -1306,7 +1304,7 @@ fn test_constructor_rs_only() {
     assert_eq!(grid.variable_names(), &["1", "2", "3"]);
 
     // Test grid works
-    let grididx = [2i64, 3, 1];
+    let grididx = [1usize, 2, 0];
     let origcoord = grid.grididx_to_origcoord(&grididx).unwrap();
     assert_eq!(
         grid.origcoord_to_grididx(&origcoord).unwrap(),
@@ -1418,22 +1416,22 @@ fn test_constructor_patterns() {
     assert_eq!(grid_pattern3.base(), 4);
 
     // Verify all patterns produce working grids
-    let origcoord1 = grid_pattern1.grididx_to_origcoord(&[2, 3]).unwrap();
+    let origcoord1 = grid_pattern1.grididx_to_origcoord(&[1, 2]).unwrap();
     assert_eq!(
         grid_pattern1.origcoord_to_grididx(&origcoord1).unwrap(),
-        vec![2, 3]
+        vec![1, 2]
     );
 
-    let origcoord2 = grid_pattern2.grididx_to_origcoord(&[2, 3, 1]).unwrap();
+    let origcoord2 = grid_pattern2.grididx_to_origcoord(&[1, 2, 0]).unwrap();
     assert_eq!(
         grid_pattern2.origcoord_to_grididx(&origcoord2).unwrap(),
-        vec![2, 3, 1]
+        vec![1, 2, 0]
     );
 
-    let origcoord3 = grid_pattern3.grididx_to_origcoord(&[2]).unwrap();
+    let origcoord3 = grid_pattern3.grididx_to_origcoord(&[1]).unwrap();
     assert_eq!(
         grid_pattern3.origcoord_to_grididx(&origcoord3).unwrap(),
-        vec![2]
+        vec![1]
     );
 }
 
@@ -1451,8 +1449,8 @@ fn test_grouped_scheme_basic() {
         .unwrap();
     assert_eq!(grid.local_dimensions(), vec![2, 2, 2]); // fill(2, sum(Rs))
 
-    let grididx = vec![3i64, 2];
-    let expected_quantics = vec![2i64, 1, 2];
+    let grididx = vec![2usize, 1];
+    let expected_quantics = vec![1usize, 0, 1];
     assert_eq!(
         grid.grididx_to_quantics(&grididx).unwrap(),
         expected_quantics
@@ -1470,8 +1468,8 @@ fn test_grouped_scheme_basic() {
         .unwrap();
     assert_eq!(grid_base3.local_dimensions(), vec![3, 3, 3]);
 
-    let grididx_base3 = vec![5i64, 3];
-    let expected_quantics_base3 = vec![2i64, 2, 3];
+    let grididx_base3 = vec![4usize, 2];
+    let expected_quantics_base3 = vec![1usize, 1, 2];
     assert_eq!(
         grid_base3.grididx_to_quantics(&grididx_base3).unwrap(),
         expected_quantics_base3
@@ -1496,10 +1494,10 @@ fn test_mixed_bases_fused() {
     assert_eq!(grid.bases(), &[2, 6]);
     assert_eq!(grid.local_dimensions(), vec![12]); // prod(bases)
 
-    assert_eq!(grid.grididx_to_quantics(&[2, 6]).unwrap(), vec![12]);
-    assert_eq!(grid.quantics_to_grididx(&[12]).unwrap(), vec![2, 6]);
-    assert_eq!(grid.grididx_to_quantics(&[1, 2]).unwrap(), vec![3]);
-    assert_eq!(grid.quantics_to_grididx(&[3]).unwrap(), vec![1, 2]);
+    assert_eq!(grid.grididx_to_quantics(&[1, 5]).unwrap(), vec![11]);
+    assert_eq!(grid.quantics_to_grididx(&[11]).unwrap(), vec![1, 5]);
+    assert_eq!(grid.grididx_to_quantics(&[0, 1]).unwrap(), vec![2]);
+    assert_eq!(grid.quantics_to_grididx(&[2]).unwrap(), vec![0, 1]);
 }
 
 // --- "mixed bases interleaved" ---
@@ -1513,8 +1511,8 @@ fn test_mixed_bases_interleaved() {
 
     assert_eq!(grid.local_dimensions(), vec![2, 6, 2]);
 
-    assert_eq!(grid.grididx_to_quantics(&[2, 6]).unwrap(), vec![1, 6, 2]);
-    assert_eq!(grid.quantics_to_grididx(&[1, 6, 2]).unwrap(), vec![2, 6]);
+    assert_eq!(grid.grididx_to_quantics(&[1, 5]).unwrap(), vec![0, 5, 1]);
+    assert_eq!(grid.quantics_to_grididx(&[0, 5, 1]).unwrap(), vec![1, 5]);
 }
 
 // --- "mixed bases grouped" ---
@@ -1528,8 +1526,8 @@ fn test_mixed_bases_grouped() {
 
     assert_eq!(grid.local_dimensions(), vec![2, 2, 6]);
 
-    assert_eq!(grid.grididx_to_quantics(&[2, 6]).unwrap(), vec![1, 2, 6]);
-    assert_eq!(grid.quantics_to_grididx(&[1, 2, 6]).unwrap(), vec![2, 6]);
+    assert_eq!(grid.grididx_to_quantics(&[1, 5]).unwrap(), vec![0, 1, 5]);
+    assert_eq!(grid.quantics_to_grididx(&[0, 1, 5]).unwrap(), vec![1, 5]);
 }
 
 // --- "mixed bases fused roundtrip" ---
@@ -1543,14 +1541,11 @@ fn test_mixed_bases_fused_roundtrip() {
 
     assert_eq!(grid.local_dimensions(), vec![30, 6, 2]);
 
-    // Julia: 50 random quantics from rand(1:d) per localdimension
+    // Julia: 50 random quantics from rand(0:d-1) per localdimension
     let dims = grid.local_dimensions();
     let mut rng = StdRng::seed_from_u64(42);
     for _ in 0..50 {
-        let quantics: Vec<i64> = dims
-            .iter()
-            .map(|&d| rng.random_range(1..=d as i64))
-            .collect();
+        let quantics: Vec<usize> = dims.iter().map(|&d| rng.random_range(0..d)).collect();
         let grididx = grid.quantics_to_grididx(&quantics).unwrap();
         assert_eq!(
             grid.grididx_to_quantics(&grididx).unwrap(),
@@ -1562,7 +1557,7 @@ fn test_mixed_bases_fused_roundtrip() {
 }
 
 // --- "quantics_to_grididx compose grididx_to_quantics == identity" ---
-// Julia: DiscretizedGrid((5, 3, 17); base=13), 100 random grididx from rand(1:grid_Rs(grid)[d])
+// Julia: DiscretizedGrid((5, 3, 17); base=13), 100 random grididx from rand(0:grid_Rs(grid)[d]-1)
 #[test]
 fn test_roundtrip_grididx_to_quantics_identity() {
     let grid = InherentDiscreteGrid::builder(&[5, 3, 17])
@@ -1574,7 +1569,7 @@ fn test_roundtrip_grididx_to_quantics_identity() {
 
     let mut rng = StdRng::seed_from_u64(42);
     for _ in 0..100 {
-        let grididx: Vec<i64> = rs.iter().map(|&r| rng.random_range(1..=r as i64)).collect();
+        let grididx: Vec<usize> = rs.iter().map(|&r| rng.random_range(0..r)).collect();
         let quantics = grid.grididx_to_quantics(&grididx).unwrap();
         assert_eq!(
             grid.quantics_to_grididx(&quantics).unwrap(),
@@ -1586,7 +1581,7 @@ fn test_roundtrip_grididx_to_quantics_identity() {
 }
 
 // --- "grididx_to_quantics compose quantics_to_grididx == identity" ---
-// Julia: DiscretizedGrid((48, 31, 62)), 100 random quantics from rand(1:2, length(grid))
+// Julia: DiscretizedGrid((48, 31, 62)), 100 random quantics from rand(0:1, length(grid))
 #[test]
 fn test_roundtrip_quantics_to_grididx_identity() {
     let grid = InherentDiscreteGrid::builder(&[48, 31, 62])
@@ -1597,7 +1592,7 @@ fn test_roundtrip_quantics_to_grididx_identity() {
 
     let mut rng = StdRng::seed_from_u64(42);
     for _ in 0..100 {
-        let quantics: Vec<i64> = (0..total_len).map(|_| rng.random_range(1..=2)).collect();
+        let quantics: Vec<usize> = (0..total_len).map(|_| rng.random_range(0..2)).collect();
         let grididx = grid.quantics_to_grididx(&quantics).unwrap();
         assert_eq!(
             grid.grididx_to_quantics(&grididx).unwrap(),
@@ -1608,7 +1603,7 @@ fn test_roundtrip_quantics_to_grididx_identity() {
 }
 
 // --- "grididx_to_quantics compose quantics_to_grididx == identity, base != 2" ---
-// Julia: DiscretizedGrid((22, 9, 14); base=7), 100 random quantics from rand(1:7, length(grid))
+// Julia: DiscretizedGrid((22, 9, 14); base=7), 100 random quantics from rand(0:6, length(grid))
 #[test]
 fn test_roundtrip_quantics_to_grididx_base7() {
     let base: usize = 7;
@@ -1618,11 +1613,11 @@ fn test_roundtrip_quantics_to_grididx_base7() {
         .unwrap();
 
     let total_len = grid.len();
-    let b = base as i64;
+    let b = base;
 
     let mut rng = StdRng::seed_from_u64(42);
     for _ in 0..100 {
-        let quantics: Vec<i64> = (0..total_len).map(|_| rng.random_range(1..=b)).collect();
+        let quantics: Vec<usize> = (0..total_len).map(|_| rng.random_range(0..b)).collect();
         let grididx = grid.quantics_to_grididx(&quantics).unwrap();
         assert_eq!(
             grid.grididx_to_quantics(&grididx).unwrap(),
@@ -1660,8 +1655,8 @@ fn test_quantics_to_grididx_rectangular() {
         .with_unfolding_scheme(UnfoldingScheme::Interleaved)
         .build()
         .unwrap();
-    let result = grid.quantics_to_grididx(&[1, 2, 1, 2, 1, 2, 1, 2]).unwrap();
-    assert_eq!(result, vec![1, 30]);
+    let result = grid.quantics_to_grididx(&[0, 1, 0, 1, 0, 1, 0, 1]).unwrap();
+    assert_eq!(result, vec![0, 29]);
 }
 
 // --- "grididx_to_quantics, rectangular grid" ---
@@ -1671,8 +1666,8 @@ fn test_grididx_to_quantics_rectangular() {
         .with_unfolding_scheme(UnfoldingScheme::Interleaved)
         .build()
         .unwrap();
-    let result = grid.grididx_to_quantics(&[1, 30]).unwrap();
-    assert_eq!(result, vec![1, 2, 1, 2, 1, 2, 1, 2]);
+    let result = grid.grididx_to_quantics(&[0, 29]).unwrap();
+    assert_eq!(result, vec![0, 1, 0, 1, 0, 1, 0, 1]);
 }
 
 // --- "challenging tests - extreme edge cases" ---
@@ -1683,21 +1678,21 @@ fn test_extreme_edge_cases() {
         .build()
         .unwrap();
 
-    // Minimum valid grididx (all 1s)
-    let min_grididx = vec![1i64, 1, 1];
+    // Minimum valid grididx (all 0s)
+    let min_grididx = vec![0usize, 0, 0];
     let quantics = grid.grididx_to_quantics(&min_grididx).unwrap();
-    assert!(quantics.iter().all(|&q| q == 1));
+    assert!(quantics.iter().all(|&q| q == 0));
     assert_eq!(grid.quantics_to_grididx(&quantics).unwrap(), min_grididx);
 
-    // Maximum valid grididx
-    let max_grididx = vec![2i64.pow(10), 2i64.pow(5), 2i64.pow(8)];
+    // Maximum valid grididx (2^R - 1)
+    let max_grididx = vec![2usize.pow(10) - 1, 2usize.pow(5) - 1, 2usize.pow(8) - 1];
     let quantics = grid.grididx_to_quantics(&max_grididx).unwrap();
-    assert!(quantics.iter().all(|&q| q == 2));
+    assert!(quantics.iter().all(|&q| q == 1));
     assert_eq!(grid.quantics_to_grididx(&quantics).unwrap(), max_grididx);
 }
 
 // --- "challenging tests - mixed bases" ---
-// Julia: 50 random quantics from rand(1:3, length(grid))
+// Julia: 50 random quantics from rand(0:2, length(grid))
 #[test]
 fn test_challenging_mixed_bases_base3() {
     let grid = InherentDiscreteGrid::builder(&[4, 6, 3])
@@ -1710,17 +1705,17 @@ fn test_challenging_mixed_bases_base3() {
 
     let mut rng = StdRng::seed_from_u64(42);
     for _ in 0..50 {
-        let quantics: Vec<i64> = (0..total_len).map(|_| rng.random_range(1..=3)).collect();
+        let quantics: Vec<usize> = (0..total_len).map(|_| rng.random_range(0..3)).collect();
         let grididx = grid.quantics_to_grididx(&quantics).unwrap();
         assert_eq!(grid.grididx_to_quantics(&grididx).unwrap(), quantics);
         // Verify bounds
         for (i, &q) in quantics.iter().enumerate() {
-            assert!(q >= 1 && q <= dims[i] as i64);
+            assert!(q < dims[i]);
         }
     }
 }
 
-// Julia: 50 random grididx from rand(1:5^3) and rand(1:5^4)
+// Julia: 50 random grididx from rand(0:5^3-1) and rand(0:5^4-1)
 #[test]
 fn test_challenging_mixed_bases_base5_interleaved() {
     let grid = InherentDiscreteGrid::builder(&[3, 4])
@@ -1729,15 +1724,15 @@ fn test_challenging_mixed_bases_base5_interleaved() {
         .build()
         .unwrap();
 
-    let max0 = 5i64.pow(3);
-    let max1 = 5i64.pow(4);
+    let max0 = 5usize.pow(3);
+    let max1 = 5usize.pow(4);
 
     let mut rng = StdRng::seed_from_u64(42);
     for _ in 0..50 {
-        let grididx = vec![rng.random_range(1..=max0), rng.random_range(1..=max1)];
+        let grididx = vec![rng.random_range(0..max0), rng.random_range(0..max1)];
         let quantics = grid.grididx_to_quantics(&grididx).unwrap();
         assert_eq!(grid.quantics_to_grididx(&quantics).unwrap(), grididx);
-        assert!(quantics.iter().all(|&q| (1..=5).contains(&q)));
+        assert!(quantics.iter().all(|&q| (0..5).contains(&q)));
     }
 }
 
@@ -1747,14 +1742,14 @@ fn test_complex_fused_indices() {
     // Multiple variables fused in single sites
     let index_table = vec![
         vec![
-            ("x".to_string(), 3),
-            ("y".to_string(), 2),
-            ("z".to_string(), 1),
+            ("x".to_string(), 2),
+            ("y".to_string(), 1),
+            ("z".to_string(), 0),
         ], // 3 variables in one site
-        vec![("x".to_string(), 2)], // single variable
-        vec![("y".to_string(), 1), ("z".to_string(), 2)], // 2 variables fused
         vec![("x".to_string(), 1)], // single variable
-        vec![("z".to_string(), 3)], // single variable
+        vec![("y".to_string(), 0), ("z".to_string(), 1)], // 2 variables fused
+        vec![("x".to_string(), 0)], // single variable
+        vec![("z".to_string(), 2)], // single variable
     ];
 
     let grid = InherentDiscreteGrid::from_index_table(&["x", "y", "z"], index_table)
@@ -1763,12 +1758,12 @@ fn test_complex_fused_indices() {
 
     // Test specific known values
     assert_eq!(
-        grid.quantics_to_grididx(&[8, 1, 4, 2, 1]).unwrap(),
-        vec![6, 4, 7]
+        grid.quantics_to_grididx(&[7, 0, 3, 1, 0]).unwrap(),
+        vec![5, 3, 6]
     );
     assert_eq!(
-        grid.grididx_to_quantics(&[6, 4, 7]).unwrap(),
-        vec![8, 1, 4, 2, 1]
+        grid.grididx_to_quantics(&[5, 3, 6]).unwrap(),
+        vec![7, 0, 3, 1, 0]
     );
 
     // Test all site dimensions
@@ -1776,11 +1771,11 @@ fn test_complex_fused_indices() {
     assert_eq!(dims, vec![8, 2, 4, 2, 2]); // 2^3, 2^1, 2^2, 2^1, 2^1
 
     // Exhaustive roundtrip for all quantics
-    for d0 in 1..=dims[0] as i64 {
-        for d1 in 1..=dims[1] as i64 {
-            for d2 in 1..=dims[2] as i64 {
-                for d3 in 1..=dims[3] as i64 {
-                    for d4 in 1..=dims[4] as i64 {
+    for d0 in 0..dims[0] {
+        for d1 in 0..dims[1] {
+            for d2 in 0..dims[2] {
+                for d3 in 0..dims[3] {
+                    for d4 in 0..dims[4] {
                         let quantics = vec![d0, d1, d2, d3, d4];
                         let grididx = grid.quantics_to_grididx(&quantics).unwrap();
                         assert_eq!(grid.grididx_to_quantics(&grididx).unwrap(), quantics);
@@ -1797,25 +1792,25 @@ fn test_single_dimension_edge_cases() {
     let grid = InherentDiscreteGrid::builder(&[25]).build().unwrap();
 
     // Extremes
-    let min_quantics = vec![1i64; 25];
-    let max_quantics = vec![2i64; 25];
+    let min_quantics = vec![0usize; 25];
+    let max_quantics = vec![1usize; 25];
 
-    assert_eq!(grid.quantics_to_grididx(&min_quantics).unwrap(), vec![1]);
+    assert_eq!(grid.quantics_to_grididx(&min_quantics).unwrap(), vec![0]);
     assert_eq!(
         grid.quantics_to_grididx(&max_quantics).unwrap(),
-        vec![2i64.pow(25)]
+        vec![2usize.pow(25) - 1]
     );
-    assert_eq!(grid.grididx_to_quantics(&[1]).unwrap(), min_quantics);
+    assert_eq!(grid.grididx_to_quantics(&[0]).unwrap(), min_quantics);
     assert_eq!(
-        grid.grididx_to_quantics(&[2i64.pow(25)]).unwrap(),
+        grid.grididx_to_quantics(&[2usize.pow(25) - 1]).unwrap(),
         max_quantics
     );
 
     // Test middle values with deterministic patterns
-    let patterns: Vec<Vec<i64>> = vec![
-        (0..25).map(|i| if i % 2 == 0 { 1 } else { 2 }).collect(),
-        (0..25).map(|i| if i % 3 == 0 { 2 } else { 1 }).collect(),
-        (0..25).map(|i| if i < 12 { 1 } else { 2 }).collect(),
+    let patterns: Vec<Vec<usize>> = vec![
+        (0..25).map(|i| if i % 2 == 0 { 0 } else { 1 }).collect(),
+        (0..25).map(|i| if i % 3 == 0 { 1 } else { 0 }).collect(),
+        (0..25).map(|i| if i < 12 { 0 } else { 1 }).collect(),
     ];
 
     for quantics in &patterns {
@@ -1825,7 +1820,7 @@ fn test_single_dimension_edge_cases() {
 }
 
 // --- "challenging tests - high dimensional grids" ---
-// Julia: 30 random iterations with rand(1:3, length(grid))
+// Julia: 30 random iterations with rand(0:2, length(grid))
 #[test]
 fn test_high_dimensional_grids_base3() {
     // 8D grid with moderate R values
@@ -1840,8 +1835,8 @@ fn test_high_dimensional_grids_base3() {
 
     let mut rng = StdRng::seed_from_u64(42);
     for _ in 0..30 {
-        let quantics: Vec<i64> = (0..total_len)
-            .map(|i| rng.random_range(1..=dims[i] as i64))
+        let quantics: Vec<usize> = (0..total_len)
+            .map(|i| rng.random_range(0..dims[i]))
             .collect();
         let grididx = grid.quantics_to_grididx(&quantics).unwrap();
         assert_eq!(grid.grididx_to_quantics(&grididx).unwrap(), quantics);
@@ -1849,7 +1844,7 @@ fn test_high_dimensional_grids_base3() {
         // Verify all grid indices are within bounds
         for (d, (&g, &r)) in grididx.iter().zip(rs.iter()).enumerate() {
             assert!(
-                g >= 1 && g <= 3i64.pow(r as u32),
+                g < 3usize.pow(r as u32),
                 "Grid index {} for dim {} out of bounds",
                 g,
                 d
@@ -1862,25 +1857,25 @@ fn test_high_dimensional_grids_base3() {
 #[test]
 fn test_stress_complex_patterns() {
     let index_table = vec![
-        vec![("e".to_string(), 1)],                       // site 1
-        vec![("a".to_string(), 5), ("c".to_string(), 4)], // site 2
-        vec![("b".to_string(), 3)],                       // site 3
+        vec![("e".to_string(), 0)],                       // site 1
+        vec![("a".to_string(), 4), ("c".to_string(), 3)], // site 2
+        vec![("b".to_string(), 2)],                       // site 3
         vec![
-            ("a".to_string(), 4),
-            ("b".to_string(), 2),
-            ("d".to_string(), 3),
+            ("a".to_string(), 3),
+            ("b".to_string(), 1),
+            ("d".to_string(), 2),
         ], // site 4
-        vec![("c".to_string(), 3), ("e".to_string(), 2)], // site 5
-        vec![("a".to_string(), 3)],                       // site 6
-        vec![("b".to_string(), 1), ("d".to_string(), 2)], // site 7
+        vec![("c".to_string(), 2), ("e".to_string(), 1)], // site 5
+        vec![("a".to_string(), 2)],                       // site 6
+        vec![("b".to_string(), 0), ("d".to_string(), 1)], // site 7
         vec![
-            ("a".to_string(), 2),
-            ("c".to_string(), 2),
-            ("d".to_string(), 1),
-            ("e".to_string(), 3),
+            ("a".to_string(), 1),
+            ("c".to_string(), 1),
+            ("d".to_string(), 0),
+            ("e".to_string(), 2),
         ], // site 8
-        vec![("a".to_string(), 1)],                       // site 9
-        vec![("c".to_string(), 1)],                       // site 10
+        vec![("a".to_string(), 0)],                       // site 9
+        vec![("c".to_string(), 0)],                       // site 10
     ];
 
     let grid = InherentDiscreteGrid::from_index_table(&["a", "b", "c", "d", "e"], index_table)
@@ -1897,21 +1892,18 @@ fn test_stress_complex_patterns() {
     assert_eq!(
         max_grididx,
         &[
-            3i64.pow(5),
-            3i64.pow(3),
-            3i64.pow(4),
-            3i64.pow(3),
-            3i64.pow(3)
+            3usize.pow(5) - 1,
+            3usize.pow(3) - 1,
+            3usize.pow(4) - 1,
+            3usize.pow(3) - 1,
+            3usize.pow(3) - 1
         ]
     );
 
     // Julia: 200 random quantics with site dimensions [3, 9, 3, 27, 9, 3, 9, 81, 3, 3]
     let mut rng = StdRng::seed_from_u64(42);
     for _ in 0..200 {
-        let quantics: Vec<i64> = dims
-            .iter()
-            .map(|&d| rng.random_range(1..=d as i64))
-            .collect();
+        let quantics: Vec<usize> = dims.iter().map(|&d| rng.random_range(0..d)).collect();
 
         let grididx = grid.quantics_to_grididx(&quantics).unwrap();
         let recovered = grid.grididx_to_quantics(&grididx).unwrap();
@@ -1920,8 +1912,8 @@ fn test_stress_complex_patterns() {
         // Verify grid indices are within bounds
         for (i, (&g, &m)) in grididx.iter().zip(max_grididx.iter()).enumerate() {
             assert!(
-                g >= 1 && g <= m,
-                "Grid index {} for dim {} out of bounds [1, {}]",
+                g <= m,
+                "Grid index {} for dim {} out of bounds [0, {}]",
                 g,
                 i,
                 m
@@ -1934,16 +1926,16 @@ fn test_stress_complex_patterns() {
 #[test]
 fn test_ctor_from_indextable() {
     let index_table = vec![
-        vec![("a".to_string(), 4)],
         vec![("a".to_string(), 3)],
         vec![("a".to_string(), 2)],
         vec![("a".to_string(), 1)],
+        vec![("a".to_string(), 0)],
+        vec![("b".to_string(), 0)],
         vec![("b".to_string(), 1)],
         vec![("b".to_string(), 2)],
-        vec![("b".to_string(), 3)],
+        vec![("c".to_string(), 0)],
         vec![("c".to_string(), 1)],
         vec![("c".to_string(), 2)],
-        vec![("c".to_string(), 3)],
     ];
 
     let grid = InherentDiscreteGrid::from_index_table(&["a", "b", "c"], index_table)
@@ -1959,16 +1951,16 @@ fn test_ctor_from_indextable() {
 #[test]
 fn test_ctor_from_indextable_quantics_grididx() {
     let index_table = vec![
-        vec![("a".to_string(), 4)],
         vec![("a".to_string(), 3)],
         vec![("a".to_string(), 2)],
         vec![("a".to_string(), 1)],
+        vec![("a".to_string(), 0)],
+        vec![("b".to_string(), 0)],
         vec![("b".to_string(), 1)],
         vec![("b".to_string(), 2)],
-        vec![("b".to_string(), 3)],
+        vec![("c".to_string(), 0)],
         vec![("c".to_string(), 1)],
         vec![("c".to_string(), 2)],
-        vec![("c".to_string(), 3)],
     ];
 
     let grid = InherentDiscreteGrid::from_index_table(&["a", "b", "c"], index_table)
@@ -1976,13 +1968,13 @@ fn test_ctor_from_indextable_quantics_grididx() {
         .unwrap();
 
     assert_eq!(
-        grid.quantics_to_grididx(&[1, 2, 1, 2, 1, 2, 1, 2, 1, 2])
+        grid.quantics_to_grididx(&[0, 1, 0, 1, 0, 1, 0, 1, 0, 1])
             .unwrap(),
-        vec![11, 3, 6]
+        vec![10, 2, 5]
     );
     assert_eq!(
-        grid.grididx_to_quantics(&[11, 3, 6]).unwrap(),
-        vec![1, 2, 1, 2, 1, 2, 1, 2, 1, 2]
+        grid.grididx_to_quantics(&[10, 2, 5]).unwrap(),
+        vec![0, 1, 0, 1, 0, 1, 0, 1, 0, 1]
     );
 }
 
@@ -1990,16 +1982,16 @@ fn test_ctor_from_indextable_quantics_grididx() {
 #[test]
 fn test_ctor_from_indextable_fused_indices() {
     let index_table = vec![
-        vec![("a".to_string(), 4)],
         vec![("a".to_string(), 3)],
         vec![("a".to_string(), 2)],
         vec![("a".to_string(), 1)],
-        vec![("b".to_string(), 1), ("d".to_string(), 1)],
+        vec![("a".to_string(), 0)],
+        vec![("b".to_string(), 0), ("d".to_string(), 0)],
+        vec![("b".to_string(), 1)],
         vec![("b".to_string(), 2)],
-        vec![("b".to_string(), 3)],
-        vec![("c".to_string(), 1), ("d".to_string(), 2)],
+        vec![("c".to_string(), 0), ("d".to_string(), 1)],
+        vec![("c".to_string(), 1)],
         vec![("c".to_string(), 2)],
-        vec![("c".to_string(), 3)],
     ];
 
     let grid = InherentDiscreteGrid::from_index_table(&["a", "b", "c", "d"], index_table)
@@ -2007,13 +1999,13 @@ fn test_ctor_from_indextable_fused_indices() {
         .unwrap();
 
     assert_eq!(
-        grid.quantics_to_grididx(&[1, 2, 1, 2, 2, 2, 1, 4, 1, 2])
+        grid.quantics_to_grididx(&[0, 1, 0, 1, 1, 1, 0, 3, 0, 1])
             .unwrap(),
-        vec![11, 3, 6, 4]
+        vec![10, 2, 5, 3]
     );
     assert_eq!(
-        grid.grididx_to_quantics(&[11, 3, 6, 4]).unwrap(),
-        vec![1, 2, 1, 2, 2, 2, 1, 4, 1, 2]
+        grid.grididx_to_quantics(&[10, 2, 5, 3]).unwrap(),
+        vec![0, 1, 0, 1, 1, 1, 0, 3, 0, 1]
     );
 }
 
@@ -2025,15 +2017,15 @@ fn test_asymmetric_grids_r0() {
         .build()
         .unwrap();
 
-    // R=0 means max_grididx for that dim is 2^0=1
-    assert_eq!(grid.max_grididx()[1], 1);
+    // R=0 means max_grididx for that dim is 2^0-1=0
+    assert_eq!(grid.max_grididx()[1], 0);
 
     // Test a variety of grid indices
-    let test_indices: Vec<Vec<i64>> = vec![
-        vec![1, 1, 1, 1],
-        vec![2i64.pow(20), 1, 2i64.pow(15), 2i64.pow(3)],
-        vec![1000, 1, 500, 4],
-        vec![2i64.pow(10), 1, 2i64.pow(7), 2],
+    let test_indices: Vec<Vec<usize>> = vec![
+        vec![0, 0, 0, 0],
+        vec![2usize.pow(20) - 1, 0, 2usize.pow(15) - 1, 2usize.pow(3) - 1],
+        vec![999, 0, 499, 3],
+        vec![2usize.pow(10) - 1, 0, 2usize.pow(7) - 1, 1],
     ];
 
     for grididx in &test_indices {
@@ -2042,10 +2034,10 @@ fn test_asymmetric_grids_r0() {
         assert_eq!(back, *grididx);
 
         // Verify bounds
-        assert!(grididx[0] >= 1 && grididx[0] <= 2i64.pow(20));
-        assert_eq!(grididx[1], 1); // R=0 means only one possible value
-        assert!(grididx[2] >= 1 && grididx[2] <= 2i64.pow(15));
-        assert!(grididx[3] >= 1 && grididx[3] <= 2i64.pow(3));
+        assert!(grididx[0] < 2usize.pow(20));
+        assert_eq!(grididx[1], 0); // R=0 means only one possible value
+        assert!(grididx[2] < 2usize.pow(15));
+        assert!(grididx[3] < 2usize.pow(3));
     }
 }
 
@@ -2057,14 +2049,14 @@ fn test_asymmetric_grids_r0() {
 fn test_grididx_1d_vs_2d() {
     // 1D grid: single-element slice should work
     let grid_1d = InherentDiscreteGrid::builder(&[4]).build().unwrap();
-    let q1 = grid_1d.grididx_to_quantics(&[3]).unwrap();
+    let q1 = grid_1d.grididx_to_quantics(&[2]).unwrap();
     assert!(!q1.is_empty());
 
     // 2D grid: single-element input should error
     let grid_2d = InherentDiscreteGrid::builder(&[2, 3]).build().unwrap();
     // A single-element slice for a 2D grid: expand_grididx broadcasts it,
     // so we test that the 2D grid requires proper 2D input for unique results
-    let q2_explicit = grid_2d.grididx_to_quantics(&[1, 1]).unwrap();
+    let q2_explicit = grid_2d.grididx_to_quantics(&[0, 0]).unwrap();
     assert!(!q2_explicit.is_empty());
 }
 
@@ -2081,8 +2073,8 @@ fn test_grouped_scheme_all_roundtrip() {
     assert_eq!(grid.local_dimensions(), vec![2; 5]);
 
     // Test all possible grid indices
-    for x in 1..=8i64 {
-        for y in 1..=4i64 {
+    for x in 0..8 {
+        for y in 0..4 {
             let grididx = vec![x, y];
             let quantics = grid.grididx_to_quantics(&grididx).unwrap();
             let back = grid.quantics_to_grididx(&quantics).unwrap();
@@ -2102,8 +2094,8 @@ fn test_grouped_scheme_base3_exhaustive() {
     // All sites should have dim 3
     assert_eq!(grid.local_dimensions(), vec![3; 4]);
 
-    for x in 1..=9i64 {
-        for y in 1..=9i64 {
+    for x in 0..9 {
+        for y in 0..9 {
             let grididx = vec![x, y];
             let quantics = grid.grididx_to_quantics(&grididx).unwrap();
             let back = grid.quantics_to_grididx(&quantics).unwrap();
@@ -2140,9 +2132,9 @@ fn test_all_schemes_origcoord_consistency() {
         .build()
         .unwrap();
 
-    let max = 2i64.pow(r as u32);
-    for x in 1..=max {
-        for y in 1..=max {
+    let max = 2usize.pow(r as u32);
+    for x in 0..max {
+        for y in 0..max {
             let grididx = vec![x, y];
 
             let coord_fused = grid_fused.grididx_to_origcoord(&grididx).unwrap();
@@ -2181,11 +2173,11 @@ fn test_mixed_bases_exhaustive_fused() {
         .build()
         .unwrap();
 
-    let max0 = 2i64.pow(2); // 4
-    let max1 = 6i64.pow(1); // 6
+    let max0 = 2usize.pow(2); // 4
+    let max1 = 6usize.pow(1); // 6
 
-    for x in 1..=max0 {
-        for y in 1..=max1 {
+    for x in 0..max0 {
+        for y in 0..max1 {
             let grididx = vec![x, y];
             let quantics = grid.grididx_to_quantics(&grididx).unwrap();
             let back = grid.quantics_to_grididx(&quantics).unwrap();
@@ -2207,11 +2199,11 @@ fn test_mixed_bases_exhaustive_interleaved() {
         .build()
         .unwrap();
 
-    let max0 = 2i64.pow(2); // 4
-    let max1 = 6i64.pow(1); // 6
+    let max0 = 2usize.pow(2); // 4
+    let max1 = 6usize.pow(1); // 6
 
-    for x in 1..=max0 {
-        for y in 1..=max1 {
+    for x in 0..max0 {
+        for y in 0..max1 {
             let grididx = vec![x, y];
             let quantics = grid.grididx_to_quantics(&grididx).unwrap();
             let back = grid.quantics_to_grididx(&quantics).unwrap();
@@ -2233,11 +2225,11 @@ fn test_mixed_bases_exhaustive_grouped() {
         .build()
         .unwrap();
 
-    let max0 = 2i64.pow(2); // 4
-    let max1 = 6i64.pow(1); // 6
+    let max0 = 2usize.pow(2); // 4
+    let max1 = 6usize.pow(1); // 6
 
-    for x in 1..=max0 {
-        for y in 1..=max1 {
+    for x in 0..max0 {
+        for y in 0..max1 {
             let grididx = vec![x, y];
             let quantics = grid.grididx_to_quantics(&grididx).unwrap();
             let back = grid.quantics_to_grididx(&quantics).unwrap();
@@ -2262,13 +2254,13 @@ fn test_mixed_bases_3d_fused_exhaustive() {
 
     assert_eq!(grid.local_dimensions(), vec![30, 6, 2]);
 
-    let max0 = 2i64.pow(3); // 8
-    let max1 = 3i64.pow(2); // 9
-    let max2 = 5i64.pow(1); // 5
+    let max0 = 2usize.pow(3); // 8
+    let max1 = 3usize.pow(2); // 9
+    let max2 = 5usize.pow(1); // 5
 
-    for x in 1..=max0 {
-        for y in 1..=max1 {
-            for z in 1..=max2 {
+    for x in 0..max0 {
+        for y in 0..max1 {
+            for z in 0..max2 {
                 let grididx = vec![x, y, z];
                 let quantics = grid.grididx_to_quantics(&grididx).unwrap();
                 let back = grid.quantics_to_grididx(&quantics).unwrap();
@@ -2315,7 +2307,7 @@ fn test_grid_min_max() {
         .unwrap();
 
     assert_eq!(grid.grid_min(), vec![5, -3]);
-    // grid_max = origin + step * (max_grididx - 1)
+    // grid_max = origin + step * max_grididx
     // dim 0: 5 + 2*(8-1) = 5+14 = 19
     // dim 1: -3 + 4*(4-1) = -3+12 = 9
     assert_eq!(grid.grid_max(), vec![19, 9]);
@@ -2337,14 +2329,14 @@ fn test_wrong_quantics_length() {
         .unwrap();
 
     // Expected length is 3 (fused with Rs=(3,2)), providing 2
-    let result = grid.quantics_to_grididx(&[1, 2]);
+    let result = grid.quantics_to_grididx(&[0, 0]);
     assert!(matches!(
         result,
         Err(QuanticsGridError::WrongQuanticsLength { .. })
     ));
 
     // Providing 4 (too many)
-    let result = grid.quantics_to_grididx(&[1, 2, 1, 2]);
+    let result = grid.quantics_to_grididx(&[0, 0, 0, 0]);
     assert!(matches!(
         result,
         Err(QuanticsGridError::WrongQuanticsLength { .. })
@@ -2357,7 +2349,7 @@ fn test_dimension_mismatch_grididx() {
     let grid = InherentDiscreteGrid::builder(&[3, 2]).build().unwrap();
 
     // 3 elements for a 2D grid
-    let result = grid.grididx_to_quantics(&[1, 2, 3]);
+    let result = grid.grididx_to_quantics(&[0, 0, 0]);
     assert!(matches!(
         result,
         Err(QuanticsGridError::DimensionMismatch { .. })
@@ -2389,22 +2381,23 @@ fn test_coordinate_out_of_bounds() {
     ));
 }
 
-// --- grididx value of 0 (below valid range) ---
+// --- grididx value above max (out of range) ---
 #[test]
-fn test_grididx_zero_error() {
+fn test_grididx_out_of_range_error() {
     let grid = InherentDiscreteGrid::builder(&[3]).build().unwrap();
-    let result = grid.grididx_to_quantics(&[0]);
+    let result = grid.grididx_to_quantics(&[8]); // max is 7 (2^3 - 1)
     assert!(matches!(
         result,
         Err(QuanticsGridError::GridIndexOutOfBounds { .. })
     ));
 }
 
-// --- quantics value of 0 (below valid range) ---
+// --- quantics value out of range ---
 #[test]
-fn test_quantics_zero_error() {
+fn test_quantics_out_of_range_error() {
     let grid = InherentDiscreteGrid::builder(&[2]).build().unwrap();
-    let result = grid.quantics_to_grididx(&[0, 1]);
+    // Rs=[2] with Fused creates 2 sites, each with dim 2: valid quantics in [0, 1]
+    let result = grid.quantics_to_grididx(&[2, 0]); // 2 is out of range [0, 1]
     assert!(matches!(
         result,
         Err(QuanticsGridError::QuanticsOutOfRange { .. })

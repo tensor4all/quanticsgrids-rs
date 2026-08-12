@@ -6,16 +6,16 @@ fn main() -> quanticsgrids::Result<()> {
         .with_bounds(0.0, 1.0)
         .build()?;
 
-    let quantics = vec![1; r];
-    let grididx = vec![1];
+    let quantics = vec![0; r];
+    let grididx = vec![0];
 
     assert_eq!(grid.quantics_to_grididx(&quantics)?, grididx);
     assert_eq!(grid.grididx_to_quantics(&grididx)?, quantics);
     assert!((grid.grididx_to_origcoord(&grididx)?[0] - 0.0).abs() < 1e-12);
     assert_eq!(grid.origcoord_to_grididx(&[0.0])?, grididx);
 
-    let quantics = vec![2; r];
-    let grididx = vec![2_i64.pow(r as u32)];
+    let quantics = vec![1; r];
+    let grididx = vec![2usize.pow(r as u32) - 1];
     let x = 1.0 - 1.0 / 2.0_f64.powi(r as i32);
 
     assert_eq!(grid.quantics_to_grididx(&quantics)?, grididx);

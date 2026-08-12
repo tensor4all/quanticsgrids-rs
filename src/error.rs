@@ -82,25 +82,25 @@ pub enum QuanticsGridError {
     },
 
     /// Quantics value out of range
-    #[error("Quantics value {value} for site {site} out of range [1, {max}]")]
+    #[error("Quantics value {value} for site {site} out of range [0, {max}]")]
     QuanticsOutOfRange {
         /// Site index
         site: usize,
         /// The out-of-range value
-        value: i64,
+        value: usize,
         /// Maximum allowed value
-        max: i64,
+        max: usize,
     },
 
     /// Grid index out of bounds
-    #[error("Grid index {value} for dimension {dim} out of bounds [1, {max}]")]
+    #[error("Grid index {value} for dimension {dim} out of bounds [0, {max}]")]
     GridIndexOutOfBounds {
         /// Dimension index
         dim: usize,
         /// The out-of-bounds value
-        value: i64,
+        value: usize,
         /// Maximum allowed value
-        max: i64,
+        max: usize,
     },
 
     /// Coordinate out of bounds

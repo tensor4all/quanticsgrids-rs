@@ -7,8 +7,8 @@ fn main() -> quanticsgrids::Result<()> {
         .with_step(&[1])
         .build()?;
 
-    let quantics = vec![1; r];
-    let grididx = vec![1];
+    let quantics = vec![0; r];
+    let grididx = vec![0];
     let origcoord = vec![0];
 
     assert_eq!(grid.quantics_to_grididx(&quantics)?, grididx);
@@ -17,8 +17,8 @@ fn main() -> quanticsgrids::Result<()> {
     assert_eq!(grid.origcoord_to_grididx(&origcoord)?, grididx);
     assert_eq!(grid.origcoord_to_quantics(&origcoord)?, quantics);
 
-    let quantics = vec![2; r];
-    let grididx = vec![2_i64.pow(r as u32)];
+    let quantics = vec![1; r];
+    let grididx = vec![2usize.pow(r as u32) - 1];
     let origcoord = vec![2_i64.pow(r as u32) - 1];
 
     assert_eq!(grid.quantics_to_grididx(&quantics)?, grididx);

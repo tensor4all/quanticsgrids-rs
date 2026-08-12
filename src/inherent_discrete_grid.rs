@@ -8,8 +8,8 @@ use crate::{IndexTable, LookupEntry, UnfoldingScheme};
 /// A discrete grid for quantics tensor train representations.
 ///
 /// This structure maps between three coordinate systems:
-/// - **Quantics indices**: Integer values for each tensor core (1-indexed)
-/// - **Grid indices**: Integer positions in each dimension (1-indexed)
+/// - **Quantics indices**: Integer values for each tensor core (0-indexed)
+/// - **Grid indices**: Integer positions in each dimension (0-indexed)
 /// - **Original coordinates**: Integer positions based on origin and step
 ///
 /// # Example
@@ -34,7 +34,7 @@ pub struct InherentDiscreteGrid {
     ndims: usize,
     /// Resolution (number of bits) per dimension
     rs: Vec<usize>,
-    /// Origin in each dimension (1-indexed by default)
+    /// Origin in each dimension (coordinate of grid index 0)
     origin: Vec<i64>,
     /// Step size in each dimension
     step: Vec<i64>,
@@ -46,12 +46,12 @@ pub struct InherentDiscreteGrid {
     index_table: IndexTable,
     /// Lookup table: lookup_table[dim][bit] -> (site_index, position_in_site)
     lookup_table: Vec<Vec<LookupEntry>>,
-    /// Maximum grid index per dimension (base[d]^R[d])
-    max_grididx: Vec<i64>,
+    /// Maximum grid index per dimension (base[d]^R[d] - 1, grid indices are 0-based)
+    max_grididx: Vec<usize>,
     /// Radix (base) for each position within each site
     site_radices: Vec<Vec<usize>>,
     /// Place value for each position within each site
-    site_placevalues: Vec<Vec<i64>>,
+    site_placevalues: Vec<Vec<usize>>,
     /// Precomputed product of radices for each site (local Hilbert space dimension)
     sitedims: Vec<usize>,
 }
@@ -136,7 +136,9 @@ impl InherentDiscreteGrid {
     }
 
     /// Maximum grid index per dimension
-    pub fn max_grididx(&self) -> &[i64] {
+    /// Maximum grid index per dimension (grid indices are 0-based, so this is
+    /// `base[d]^R[d] - 1`)
+    pub fn max_grididx(&self) -> &[usize] {
         &self.max_grididx
     }
 
@@ -167,7 +169,7 @@ impl InherentDiscreteGrid {
             .iter()
             .zip(self.step.iter())
             .zip(self.max_grididx.iter())
-            .map(|((&o, &s), &m)| o + s * (m - 1))
+            .map(|((&o, &s), &m)| o + s * m as i64)
             .collect()
     }
 
@@ -178,11 +180,11 @@ impl InherentDiscreteGrid {
     /// Convert quantics indices to grid indices.
     ///
     /// # Arguments
-    /// * `quantics` - Quantics values for each tensor site (1-indexed)
+    /// * `quantics` - Quantics values for each tensor site (0-indexed)
     ///
     /// # Returns
-    /// Grid indices for each dimension (1-indexed)
-    pub fn quantics_to_grididx(&self, quantics: &[i64]) -> Result<Vec<i64>> {
+    /// Grid indices for each dimension (0-indexed)
+    pub fn quantics_to_grididx(&self, quantics: &[usize]) -> Result<Vec<usize>> {
         self.validate_quantics(quantics)?;
 
         if self.all_base_two() {
@@ -195,15 +197,15 @@ impl InherentDiscreteGrid {
     /// Convert grid indices to quantics indices.
     ///
     /// # Arguments
-    /// * `grididx` - Grid indices for each dimension (1-indexed)
+    /// * `grididx` - Grid indices for each dimension (0-indexed)
     ///
     /// # Returns
-    /// Quantics values for each tensor site (1-indexed)
-    pub fn grididx_to_quantics(&self, grididx: &[i64]) -> Result<Vec<i64>> {
+    /// Quantics values for each tensor site (0-indexed)
+    pub fn grididx_to_quantics(&self, grididx: &[usize]) -> Result<Vec<usize>> {
         let grididx = self.expand_grididx(grididx)?;
         self.validate_grididx(&grididx)?;
 
-        let mut result = vec![1i64; self.index_table.len()];
+        let mut result = vec![0usize; self.index_table.len()];
         if self.all_base_two() {
             self.grididx_to_quantics_base2(&mut result, &grididx);
         } else {
@@ -215,11 +217,11 @@ impl InherentDiscreteGrid {
     /// Convert grid indices to original coordinates.
     ///
     /// # Arguments
-    /// * `grididx` - Grid indices for each dimension (1-indexed)
+    /// * `grididx` - Grid indices for each dimension (0-indexed)
     ///
     /// # Returns
     /// Original integer coordinates
-    pub fn grididx_to_origcoord(&self, grididx: &[i64]) -> Result<Vec<i64>> {
+    pub fn grididx_to_origcoord(&self, grididx: &[usize]) -> Result<Vec<i64>> {
         let grididx = self.expand_grididx(grididx)?;
         self.validate_grididx(&grididx)?;
 
@@ -228,7 +230,7 @@ impl InherentDiscreteGrid {
             .iter()
             .zip(grididx.iter())
             .zip(self.step.iter())
-            .map(|((&o, &g), &s)| o + (g - 1) * s)
+            .map(|((&o, &g), &s)| o + g as i64 * s)
             .collect())
     }
 
@@ -238,31 +240,31 @@ impl InherentDiscreteGrid {
     /// * `coord` - Original integer coordinates
     ///
     /// # Returns
-    /// Grid indices for each dimension (1-indexed)
-    pub fn origcoord_to_grididx(&self, coord: &[i64]) -> Result<Vec<i64>> {
+    /// Grid indices for each dimension (0-indexed)
+    pub fn origcoord_to_grididx(&self, coord: &[i64]) -> Result<Vec<usize>> {
         let coord = self.expand_coord(coord)?;
         self.validate_origcoord(&coord)?;
 
-        let indices: Vec<i64> = self
+        let indices: Vec<usize> = self
             .origin
             .iter()
             .zip(coord.iter())
             .zip(self.step.iter())
             .zip(self.max_grididx.iter())
-            .map(|(((&o, &c), &s), &m)| ((c - o) / s + 1).clamp(1, m))
+            .map(|(((&o, &c), &s), &m)| ((c - o) / s).clamp(0, m as i64) as usize)
             .collect();
 
         Ok(indices)
     }
 
     /// Convert original coordinates to quantics indices.
-    pub fn origcoord_to_quantics(&self, coord: &[i64]) -> Result<Vec<i64>> {
+    pub fn origcoord_to_quantics(&self, coord: &[i64]) -> Result<Vec<usize>> {
         let grididx = self.origcoord_to_grididx(coord)?;
         self.grididx_to_quantics(&grididx)
     }
 
     /// Convert quantics indices to original coordinates.
-    pub fn quantics_to_origcoord(&self, quantics: &[i64]) -> Result<Vec<i64>> {
+    pub fn quantics_to_origcoord(&self, quantics: &[usize]) -> Result<Vec<i64>> {
         let grididx = self.quantics_to_grididx(quantics)?;
         self.grididx_to_origcoord(&grididx)
     }
@@ -275,7 +277,7 @@ impl InherentDiscreteGrid {
         self.bases.iter().all(|&b| b == 2)
     }
 
-    fn validate_quantics(&self, quantics: &[i64]) -> Result<()> {
+    fn validate_quantics(&self, quantics: &[usize]) -> Result<()> {
         if quantics.len() != self.index_table.len() {
             return Err(QuanticsGridError::WrongQuanticsLength {
                 expected: self.index_table.len(),
@@ -284,8 +286,8 @@ impl InherentDiscreteGrid {
         }
 
         for (site, &val) in quantics.iter().enumerate() {
-            let max = self.sitedims[site] as i64;
-            if val < 1 || val > max {
+            let max = self.sitedims[site];
+            if val >= max {
                 return Err(QuanticsGridError::QuanticsOutOfRange {
                     site,
                     value: val,
@@ -297,9 +299,9 @@ impl InherentDiscreteGrid {
         Ok(())
     }
 
-    fn validate_grididx(&self, grididx: &[i64]) -> Result<()> {
+    fn validate_grididx(&self, grididx: &[usize]) -> Result<()> {
         for (dim, (&val, &max)) in grididx.iter().zip(self.max_grididx.iter()).enumerate() {
-            if val < 1 || val > max {
+            if val > max {
                 return Err(QuanticsGridError::GridIndexOutOfBounds {
                     dim,
                     value: val,
@@ -327,7 +329,7 @@ impl InherentDiscreteGrid {
     }
 
     /// Expand a scalar or lower-dimensional input to full dimensions
-    fn expand_grididx(&self, grididx: &[i64]) -> Result<Vec<i64>> {
+    fn expand_grididx(&self, grididx: &[usize]) -> Result<Vec<usize>> {
         if grididx.len() == 1 && self.ndims > 1 {
             Ok(vec![grididx[0]; self.ndims])
         } else if grididx.len() == self.ndims {
@@ -353,35 +355,35 @@ impl InherentDiscreteGrid {
         }
     }
 
-    fn quantics_to_grididx_base2(&self, quantics: &[i64]) -> Vec<i64> {
+    fn quantics_to_grididx_base2(&self, quantics: &[usize]) -> Vec<usize> {
         (0..self.ndims)
             .map(|d| {
                 let r_d = self.rs[d];
-                let mut grididx = 0i64;
+                let mut grididx = 0usize;
 
                 for bitnumber in 0..r_d {
                     let (site_idx, pos_in_site) = self.lookup_table[d][bitnumber];
                     let bit_position = self.index_table[site_idx].len() - 1 - pos_in_site;
-                    let digit = ((quantics[site_idx] - 1) >> bit_position) & 1;
+                    let digit = (quantics[site_idx] >> bit_position) & 1;
                     grididx |= digit << (r_d - 1 - bitnumber);
                 }
-                grididx + 1
+                grididx
             })
             .collect()
     }
 
-    fn quantics_to_grididx_general(&self, quantics: &[i64]) -> Vec<i64> {
+    fn quantics_to_grididx_general(&self, quantics: &[usize]) -> Vec<usize> {
         (0..self.ndims)
             .map(|d| {
                 let r_d = self.rs[d];
-                let base_d = self.bases[d] as i64;
-                let mut grididx = 1i64;
+                let base_d = self.bases[d];
+                let mut grididx = 0usize;
 
                 for bitnumber in 0..r_d {
                     let (site_idx, pos_in_site) = self.lookup_table[d][bitnumber];
                     let placevalue = self.site_placevalues[site_idx][pos_in_site];
-                    let radix = self.site_radices[site_idx][pos_in_site] as i64;
-                    let digit = ((quantics[site_idx] - 1) / placevalue) % radix;
+                    let radix = self.site_radices[site_idx][pos_in_site];
+                    let digit = (quantics[site_idx] / placevalue) % radix;
 
                     grididx += digit * base_d.pow((r_d - 1 - bitnumber) as u32);
                 }
@@ -390,19 +392,17 @@ impl InherentDiscreteGrid {
             .collect()
     }
 
-    fn grididx_to_quantics_base2(&self, result: &mut [i64], grididx: &[i64]) {
+    fn grididx_to_quantics_base2(&self, result: &mut [usize], grididx: &[usize]) {
         for (&grid_val, (&r_d, lookup)) in grididx
             .iter()
             .zip(self.rs.iter().zip(self.lookup_table.iter()))
             .take(self.ndims)
         {
-            let zero_based_idx = grid_val - 1;
-
             for (bitnumber, &(site_idx, pos_in_site)) in lookup.iter().enumerate().take(r_d) {
                 let site_length = self.index_table[site_idx].len();
 
                 let bit_position = r_d - 1 - bitnumber;
-                let digit = (zero_based_idx >> bit_position) & 1;
+                let digit = (grid_val >> bit_position) & 1;
 
                 let power = site_length - 1 - pos_in_site;
                 result[site_idx] += digit << power;
@@ -410,19 +410,18 @@ impl InherentDiscreteGrid {
         }
     }
 
-    fn grididx_to_quantics_general(&self, result: &mut [i64], grididx: &[i64]) {
+    fn grididx_to_quantics_general(&self, result: &mut [usize], grididx: &[usize]) {
         for (d, (&grid_val, (&r_d, lookup))) in grididx
             .iter()
             .zip(self.rs.iter().zip(self.lookup_table.iter()))
             .enumerate()
             .take(self.ndims)
         {
-            let zero_based_idx = grid_val - 1;
-            let base_d = self.bases[d] as i64;
+            let base_d = self.bases[d];
 
             for (bitnumber, &(site_idx, pos_in_site)) in lookup.iter().enumerate().take(r_d) {
                 let bit_position = r_d - 1 - bitnumber;
-                let digit = (zero_based_idx / base_d.pow(bit_position as u32)) % base_d;
+                let digit = (grid_val / base_d.pow(bit_position as u32)) % base_d;
 
                 let placevalue = self.site_placevalues[site_idx][pos_in_site];
                 result[site_idx] += digit * placevalue;
@@ -618,12 +617,12 @@ impl InherentDiscreteGridBuilder {
         let site_placevalues = build_site_placevalues(&site_radices);
         let sitedims = build_site_dims(&site_radices);
 
-        // Compute max grid indices
-        let max_grididx: Vec<i64> = self
+        // Compute max grid indices (0-based: base^R - 1)
+        let max_grididx: Vec<usize> = self
             .rs
             .iter()
             .zip(bases.iter())
-            .map(|(&r, &b)| (b as i64).pow(r as u32))
+            .map(|(&r, &b)| b.pow(r as u32) - 1)
             .collect();
 
         Ok(InherentDiscreteGrid {
@@ -681,16 +680,16 @@ fn build_site_radices(
 }
 
 /// Build site_placevalues: mixed-radix place values for each position within each site
-fn build_site_placevalues(site_radices: &[Vec<usize>]) -> Vec<Vec<i64>> {
+fn build_site_placevalues(site_radices: &[Vec<usize>]) -> Vec<Vec<usize>> {
     site_radices
         .iter()
         .map(|radices| {
             let len = radices.len();
-            let mut placevalues = vec![0i64; len];
-            let mut mult = 1i64;
+            let mut placevalues = vec![0usize; len];
+            let mut mult = 1usize;
             for pos in (0..len).rev() {
                 placevalues[pos] = mult;
-                mult *= radices[pos] as i64;
+                mult *= radices[pos];
             }
             placevalues
         })
@@ -744,7 +743,7 @@ fn add_interleaved_indices(
 ) {
     for (d, name) in variable_names.iter().enumerate() {
         if bitnumber < rs[d] {
-            let qindex = (name.clone(), bitnumber + 1); // 1-indexed bit number
+            let qindex = (name.clone(), bitnumber);
             index_table.push(vec![qindex]);
         }
     }
@@ -760,7 +759,7 @@ fn add_fused_indices(
     // Add dimensions in reverse order to match Julia convention
     for d in (0..variable_names.len()).rev() {
         if bitnumber < rs[d] {
-            let qindex = (variable_names[d].clone(), bitnumber + 1); // 1-indexed
+            let qindex = (variable_names[d].clone(), bitnumber);
             indices_bitnumber.push(qindex);
         }
     }
@@ -772,7 +771,7 @@ fn add_fused_indices(
 fn add_grouped_indices(index_table: &mut IndexTable, variable_names: &[String], rs: &[usize]) {
     for (d, name) in variable_names.iter().enumerate() {
         for bitnumber in 0..rs[d] {
-            let qindex = (name.clone(), bitnumber + 1); // 1-indexed
+            let qindex = (name.clone(), bitnumber);
             index_table.push(vec![qindex]);
         }
     }
@@ -798,10 +797,10 @@ fn build_lookup_table(
                     valid: variable_names.to_vec(),
                 })?;
 
-            // bitnumber is 1-indexed in QuanticsIndex
-            let bit_idx = bitnumber - 1;
+            // bitnumber is 0-indexed in QuanticsIndex
+            let bit_idx = *bitnumber;
 
-            if *bitnumber > rs[var_idx] {
+            if *bitnumber >= rs[var_idx] {
                 return Err(QuanticsGridError::InvalidBitNumber {
                     variable: var_name.clone(),
                     bit: *bitnumber,
@@ -827,7 +826,7 @@ fn build_lookup_table(
             if !v {
                 return Err(QuanticsGridError::MissingIndexEntry {
                     variable: variable_names[var_idx].clone(),
-                    bit: bit_idx + 1, // 1-indexed
+                    bit: bit_idx,
                 });
             }
         }

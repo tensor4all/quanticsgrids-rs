@@ -1,15 +1,18 @@
 # Definition
 
 We first introduce a base-`B` representation with `B = 2, 3, 4, ...`.
-Throughout this guide, quantics digits and grid indices are 1-based.
+Throughout this guide, quantics digits and grid indices are 0-based
+(0-indexed), matching the Rust convention. QuanticsGrids.jl is 1-based;
+when porting Julia scripts, subtract 1 from grid indices and quantics
+digits at the call boundary.
 
-We represent a positive integer `X >= 1` as
+We represent a non-negative integer `X >= 0` as
 
 $$
-X = \sum_{i=1}^{R} (x_i - 1) B^{R-i} + 1,
+X = \sum_{i=1}^{R} x_i B^{R-i},
 $$
 
-where each digit `x_i` satisfies `1 <= x_i <= B` and `R` is the number of
+where each digit `x_i` satisfies `0 <= x_i < B` and `R` is the number of
 digits. In this crate, the base-`B` representation of `X` is stored as the
 vector
 
@@ -40,15 +43,14 @@ $$
 where
 
 $$
-\alpha_i = (x_i - 1) + B (y_i - 1) + B^2 (z_i - 1) + 1
+\alpha_i = x_i + B y_i + B^2 z_i
 $$
 
 and therefore
 
 $$
-1 \le \alpha_i \le B^3.
+0 \le \alpha_i < B^3.
 $$
 
-In fused ordering, the `x` digit runs fastest at each digit level. This matches
-the convention used by the Julia package and generalizes to any number of
-variables.
+In fused ordering, the `x` digit runs fastest at each digit level. This
+generalizes to any number of variables.
