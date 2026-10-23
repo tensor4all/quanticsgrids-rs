@@ -9,6 +9,24 @@ use crate::{IndexTable, InherentDiscreteGrid, UnfoldingScheme};
 /// This structure wraps an [`InherentDiscreteGrid`] and adds support for
 /// continuous coordinate systems with specified lower and upper bounds.
 ///
+/// # Resolution supported by `f64`
+///
+/// Grid points are `f64` values `lower_bound + g * grid_step`, so the grid is
+/// only usable while neighbouring points stay distinguishable and the extreme
+/// points still convert to their own index. That limit depends on the bounds, not
+/// on the resolution alone: `[0, 1)` supports `R = 50`, symmetric `O(1)` bounds
+/// `R = 51`, `[1e12, 1e12 + 1e6)` `R = 30` and `[1e10, 1e10 + 1)` only `R = 17`.
+/// [`DiscretizedGrid::builder`] applies that check, which rejects grids whose
+/// coordinate round trip is inexact instead of returning a neighbouring index
+/// later; within the accepted range
+/// `origcoord_to_grididx(&grididx_to_origcoord(&[g])?) == [g]` holds exactly.
+///
+/// The check is a conservative supported-resolution condition, not a proof of
+/// distinguishability: it requires the step to be at least four ulps of the
+/// bounds and checks the last two grid points, so a grid whose arithmetic happens
+/// to round nowhere (for example `[0, 1)` with a power-of-two step) is still
+/// rejected once its step falls below that limit.
+///
 /// # Example
 /// ```
 /// use quanticsgrids::{DiscretizedGrid, UnfoldingScheme};
@@ -31,8 +49,8 @@ pub struct DiscretizedGrid {
     lower_bound: Vec<f64>,
     /// Public upper bounds for each dimension
     upper_bound: Vec<f64>,
-    /// Internal upper bounds used for grid spacing calculations
-    effective_upper_bound: Vec<f64>,
+    /// Grid step for each dimension
+    step: Vec<f64>,
     /// Whether each dimension includes the upper endpoint
     include_endpoint: Vec<bool>,
 }
@@ -123,14 +141,7 @@ impl DiscretizedGrid {
 
     /// Grid step size in each dimension
     pub fn grid_step(&self) -> Vec<f64> {
-        let rs = self.discrete_grid.rs();
-        let bases = self.discrete_grid.bases();
-        self.lower_bound
-            .iter()
-            .zip(self.effective_upper_bound.iter())
-            .zip(rs.iter().zip(bases.iter()))
-            .map(|((&lo, &hi), (&r, &b))| (hi - lo) / (b as f64).powi(r as i32))
-            .collect()
+        self.step.clone()
     }
 
     /// Minimum grid coordinates (same as lower_bound)
@@ -140,11 +151,8 @@ impl DiscretizedGrid {
 
     /// Maximum representable grid coordinates in each dimension
     pub fn grid_max(&self) -> Vec<f64> {
-        let step = self.grid_step();
-        self.effective_upper_bound
-            .iter()
-            .zip(step.iter())
-            .map(|(&hi, &s)| hi - s)
+        (0..self.ndims())
+            .map(|dim| self.origcoord_at(dim, self.grid_point_count(dim) - 1))
             .collect()
     }
 
@@ -157,13 +165,9 @@ impl DiscretizedGrid {
             });
         }
 
-        let rs = self.discrete_grid.rs();
-        let bases = self.discrete_grid.bases();
-        let n = bases[dim].pow(rs[dim] as u32);
-        let step = self.grid_step()[dim];
-        let start = self.lower_bound[dim];
-
-        Ok((0..n).map(|i| start + (i as f64) * step).collect())
+        Ok((0..self.grid_point_count(dim))
+            .map(|g| self.origcoord_at(dim, g))
+            .collect())
     }
 
     /// Get original coordinates for a dimension by variable name
@@ -199,39 +203,38 @@ impl DiscretizedGrid {
         let grididx = self.expand_grididx(grididx)?;
         self.validate_grididx(&grididx)?;
 
-        let step = self.grid_step();
-        Ok(self
-            .lower_bound
-            .iter()
-            .zip(grididx.iter())
-            .zip(step.iter())
-            .map(|((&lo, &g), &s)| lo + g as f64 * s)
+        Ok((0..self.ndims())
+            .map(|dim| self.origcoord_at(dim, grididx[dim]))
             .collect())
     }
 
     /// Convert original coordinates to grid indices (0-indexed).
+    ///
+    /// Each coordinate maps to the index `round((c - lower_bound) / grid_step)`,
+    /// clamped to `0..=N-1`. A normalized index exactly halfway between two
+    /// indices rounds to the larger one. The rounding applies to that computed
+    /// ratio, which is not bit-for-bit the midpoint between two emitted
+    /// coordinates, so the result is not promised to be the geometrically
+    /// nearest grid point in every case.
+    ///
+    /// The grid is not periodic: in the half-open case a coordinate in the last
+    /// step below `upper_bound` maps to `N-1`, the last grid point, rather than
+    /// wrapping to `0`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`QuanticsGridError::CoordinateOutOfBounds`] when a coordinate
+    /// lies outside the configured domain (`[lower, upper)`, or
+    /// `[lower, upper]` with `include_endpoint(true)`), and
+    /// [`QuanticsGridError::DimensionMismatch`] when `coord` has a length other
+    /// than one or the number of dimensions.
     pub fn origcoord_to_grididx(&self, coord: &[f64]) -> Result<Vec<usize>> {
         let coord = self.expand_coord(coord)?;
         self.validate_origcoord(&coord)?;
 
-        let step = self.grid_step();
-        let rs = self.discrete_grid.rs();
-        let bases = self.discrete_grid.bases();
-
-        let indices: Vec<usize> = self
-            .lower_bound
-            .iter()
-            .zip(coord.iter())
-            .zip(step.iter())
-            .zip(rs.iter().zip(bases.iter()))
-            .map(|(((&lo, &c), &s), (&r, &b))| {
-                let continuous_idx = (c - lo) / s;
-                let discrete_idx = continuous_idx.round() as i64;
-                discrete_idx.clamp(0, (b as i64).pow(r as u32) - 1) as usize
-            })
-            .collect();
-
-        Ok(indices)
+        Ok((0..self.ndims())
+            .map(|dim| self.grididx_at(dim, coord[dim]))
+            .collect())
     }
 
     /// Convert original coordinates to quantics indices (0-indexed).
@@ -249,6 +252,31 @@ impl DiscretizedGrid {
     // ========================================================================
     // Private helper methods
     // ========================================================================
+
+    /// Number of grid points in one dimension.
+    fn grid_point_count(&self, dim: usize) -> usize {
+        self.discrete_grid.bases()[dim].pow(self.discrete_grid.rs()[dim] as u32)
+    }
+
+    /// Coordinate of grid index `g` (0-indexed) in one dimension.
+    fn origcoord_at(&self, dim: usize, g: usize) -> f64 {
+        // The included endpoint is the upper bound by definition, while rounding
+        // of `lower_bound + (N-1) * step` can miss it by an ulp in either
+        // direction.
+        if self.include_endpoint[dim] && g == self.grid_point_count(dim) - 1 {
+            return self.upper_bound[dim];
+        }
+        self.lower_bound[dim] + g as f64 * self.step[dim]
+    }
+
+    /// Grid index nearest to the coordinate `c` (0-indexed), clamped to the grid.
+    ///
+    /// This is the inverse of [`Self::origcoord_at`] as far as `f64` allows; see
+    /// [`Self::origcoord_to_grididx`] for the rounding rule.
+    fn grididx_at(&self, dim: usize, c: f64) -> usize {
+        let idx = ((c - self.lower_bound[dim]) / self.step[dim]).round() as i64;
+        idx.clamp(0, self.grid_point_count(dim) as i64 - 1) as usize
+    }
 
     fn validate_grididx(&self, grididx: &[usize]) -> Result<()> {
         let max_grididx = self.discrete_grid.max_grididx();
@@ -519,6 +547,25 @@ impl DiscretizedGridBuilder {
     }
 
     /// Build the DiscretizedGrid
+    ///
+    /// # Errors
+    ///
+    /// - [`QuanticsGridError::DimensionMismatch`] when `lower_bound`,
+    ///   `upper_bound` or `include_endpoint` have a length other than one or the
+    ///   number of dimensions.
+    /// - [`QuanticsGridError::InvalidBounds`] when a lower bound is not below its
+    ///   upper bound.
+    /// - [`QuanticsGridError::EndpointWithZeroResolution`] when a dimension with
+    ///   resolution 0 includes its endpoint.
+    /// - [`QuanticsGridError::GridNotRepresentable`] when the grid cannot be
+    ///   represented faithfully in `f64` over the bounds. This check is
+    ///   conservative: it requires the step to be at least four ulps of the
+    ///   bounds and checks that the last two grid points stay inside the domain
+    ///   and map back to their own index. See [`DiscretizedGrid`] for the
+    ///   supported resolutions per bound regime.
+    /// - [`QuanticsGridError::ResolutionTooLarge`] and
+    ///   [`QuanticsGridError::InvalidBase`] from the underlying
+    ///   [`InherentDiscreteGrid`].
     pub fn build(self) -> Result<DiscretizedGrid> {
         let discrete_grid = self.inner.build()?;
         let ndims = discrete_grid.ndims();
@@ -580,27 +627,76 @@ impl DiscretizedGridBuilder {
             _ => vec![false; ndims],
         };
 
-        let mut effective_upper_bound = upper_bound.clone();
-
-        // Adjust upper bounds for endpoint inclusion
+        // The step is the single source of truth for the coordinate conversion,
+        // so it is computed and validated once here instead of being re-derived
+        // from a rounded upper bound at every call.
+        let mut step = Vec::with_capacity(ndims);
         for d in 0..ndims {
-            if include_endpoint[d] {
+            let span = upper_bound[d] - lower_bound[d];
+            let n_points = (bases[d] as f64).powi(rs[d] as i32);
+            let step_d = if include_endpoint[d] {
                 if rs[d] == 0 {
                     return Err(QuanticsGridError::EndpointWithZeroResolution { dim: d });
                 }
-                let n_points = (bases[d] as f64).powi(rs[d] as i32);
-                effective_upper_bound[d] +=
-                    (effective_upper_bound[d] - lower_bound[d]) / (n_points - 1.0);
-            }
+                span / (n_points - 1.0)
+            } else {
+                span / n_points
+            };
+
+            // Neighbouring grid points must stay distinguishable in f64. Once the
+            // step is only a few ulps wide, several indices collapse onto one
+            // coordinate and no conversion can recover them.
+            step.push(step_d);
         }
 
-        Ok(DiscretizedGrid {
+        let grid = DiscretizedGrid {
             discrete_grid,
             lower_bound,
             upper_bound,
-            effective_upper_bound,
+            step,
             include_endpoint,
-        })
+        };
+
+        for d in 0..grid.ndims() {
+            let n = grid.grid_point_count(d);
+            let too_fine =
+                grid.step[d] < 4.0 * ulp(grid.lower_bound[d].abs().max(grid.upper_bound[d].abs()));
+
+            // Rounding can also put an extreme grid point outside the domain or
+            // make it convert back to a neighbouring index. Checking both ends of
+            // the grid covers the indices where the rounding error is largest.
+            let broken_ends = [n - 1, n.saturating_sub(2)].iter().any(|&g| {
+                let coord = grid.origcoord_at(d, g);
+                let inside = coord >= grid.lower_bound[d]
+                    && if grid.include_endpoint[d] {
+                        coord <= grid.upper_bound[d]
+                    } else {
+                        coord < grid.upper_bound[d]
+                    };
+                !inside || grid.grididx_at(d, coord) != g
+            });
+
+            if too_fine || broken_ends {
+                return Err(QuanticsGridError::GridNotRepresentable {
+                    dim: d,
+                    step: grid.step[d],
+                    lower: grid.lower_bound[d],
+                    upper: grid.upper_bound[d],
+                });
+            }
+        }
+
+        Ok(grid)
+    }
+}
+
+/// Distance from a finite `f64` to the next representable value.
+fn ulp(x: f64) -> f64 {
+    let x = x.abs();
+    if x == 0.0 {
+        f64::MIN_POSITIVE
+    } else {
+        f64::from_bits(x.to_bits() + 1) - x
     }
 }
 

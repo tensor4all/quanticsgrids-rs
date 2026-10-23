@@ -143,6 +143,21 @@ pub enum QuanticsGridError {
         dim: usize,
     },
 
+    /// Grid step below the supported float resolution for the bounds
+    #[error(
+        "Grid step {step:e} for dimension {dim} is below the supported f64 resolution for bounds [{lower:e}, {upper:e}]; reduce the resolution"
+    )]
+    GridNotRepresentable {
+        /// Dimension index
+        dim: usize,
+        /// The grid step implied by the resolution and the bounds
+        step: f64,
+        /// Lower bound of the dimension
+        lower: f64,
+        /// Upper bound of the dimension
+        upper: f64,
+    },
+
     /// Dimension mismatch
     #[error("Dimension mismatch: expected {expected}, got {actual}")]
     DimensionMismatch {

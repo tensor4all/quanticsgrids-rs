@@ -574,28 +574,20 @@ fn test_fp_very_small_steps() {
 
 #[test]
 fn test_fp_catastrophic_cancellation() {
-    // Case 1: Very close lower_bound and coordinate values
-    let lower = 1e15;
-    let upper = 1e15 + 1.0;
-    let grid = DiscretizedGrid::builder(&[10])
-        .with_lower_bound(&[lower])
-        .with_upper_bound(&[upper])
-        .build()
-        .unwrap();
-
-    // Test round-trip for epsilon values (matches Julia: [1e-15, 1e-14, 1e-13, 1e-12, 1e-10])
-    for &eps in &[1e-15, 1e-14, 1e-13, 1e-12, 1e-10] {
-        let coord = lower + eps;
-        if coord < upper {
-            let idx = grid.origcoord_to_grididx(&[coord]).unwrap();
-            assert!(idx[0] < 1024); // 0-based: valid range [0, 2^10-1]
-
-            // Round-trip
-            let recovered_coord = grid.grididx_to_origcoord(&idx).unwrap();
-            let recovered_idx = grid.origcoord_to_grididx(&recovered_coord).unwrap();
-            assert_eq!(recovered_idx, idx);
-        }
-    }
+    // Case 1: the float spacing of the bounds is larger than the grid step, so
+    // distinct indices share one coordinate. This used to build and silently
+    // return a neighbouring index; it is rejected instead (issue #4).
+    let result = DiscretizedGrid::builder(&[10])
+        .with_lower_bound(&[1e15])
+        .with_upper_bound(&[1e15 + 1.0])
+        .build();
+    assert!(
+        matches!(
+            result,
+            Err(QuanticsGridError::GridNotRepresentable { dim: 0, .. })
+        ),
+        "expected GridNotRepresentable, got {result:?}"
+    );
 
     // Case 2: Very large coordinate values
     let lower2 = 1e12;
@@ -618,61 +610,199 @@ fn test_fp_catastrophic_cancellation() {
 
 #[test]
 fn test_fp_round_trip_consistency() {
-    // Standard precision range
-    let grid1 = DiscretizedGrid::builder(&[20]).build().unwrap();
-    // Very small range
-    let grid2 = DiscretizedGrid::builder(&[15])
-        .with_lower_bound(&[1e-10])
-        .with_upper_bound(&[1e-9])
-        .build()
-        .unwrap();
-    // Very large range
-    let grid3 = DiscretizedGrid::builder(&[12])
-        .with_lower_bound(&[1e10])
-        .with_upper_bound(&[1e11])
-        .build()
-        .unwrap();
-    // Negative range
-    let grid4 = DiscretizedGrid::builder(&[18])
-        .with_lower_bound(&[-1e5])
-        .with_upper_bound(&[-1e4])
-        .build()
-        .unwrap();
-    // Asymmetric around zero
-    let grid5 = DiscretizedGrid::builder(&[16])
-        .with_lower_bound(&[-1e-6])
-        .with_upper_bound(&[1e-5])
-        .build()
-        .unwrap();
+    // Every configuration the builder accepts must round-trip exactly. This walks
+    // all accepted resolutions for a set of bound regimes; the old version
+    // stopped at R = 20 and never reached the failure region (issue #4).
+    let bound_sets = [
+        (0.0, 1.0),
+        (-1.0, 1.0),
+        (-1.5, 1.5),
+        (-8.0, 8.0),
+        (-std::f64::consts::PI, std::f64::consts::PI),
+        (0.3, 10.3),
+        (1e10, 1e10 + 1.0),
+        (1e12, 1e12 + 1e6),
+        (1e-10, 1e-9),
+        (-1e5, -1e4),
+        (-1e-6, 1e-5),
+    ];
 
-    for grid in [&grid1, &grid2, &grid3, &grid4, &grid5] {
-        let r = grid.rs()[0];
-        let max_idx = 1usize << r;
-        let test_indices: Vec<usize> = vec![
-            0,
-            1,
-            2,
-            max_idx / 4 - 1,
-            max_idx / 2 - 1,
-            3 * max_idx / 4 - 1,
-            max_idx - 3,
-            max_idx - 2,
-            max_idx - 1,
-        ];
+    for (lower, upper) in bound_sets {
+        let mut accepted = 0;
+        for r in 1..=64usize {
+            let Ok(grid) = DiscretizedGrid::builder(&[r])
+                .with_lower_bound(&[lower])
+                .with_upper_bound(&[upper])
+                .build()
+            else {
+                break;
+            };
+            accepted += 1;
 
-        for idx in test_indices {
-            if idx < max_idx {
-                let coord = grid.grididx_to_origcoord(&[idx]).unwrap();
-                let recovered = grid.origcoord_to_grididx(&coord).unwrap();
+            let max_idx = 1usize << r;
+            let mut test_indices: Vec<usize> = vec![
+                0,
+                1,
+                2,
+                max_idx.saturating_sub(3),
+                max_idx.saturating_sub(2),
+                max_idx - 1,
+            ];
+            test_indices.retain(|&idx| idx < max_idx);
+            test_indices.extend(0..max_idx.min(256));
+            let mut rng = StdRng::seed_from_u64(r as u64);
+            test_indices.extend((0..200).map(|_| rng.random_range(0..max_idx)));
+
+            for idx in test_indices {
+                let coord = grid.grididx_to_origcoord(&[idx]).unwrap()[0];
+                assert!(
+                    coord >= lower && coord < upper,
+                    "grid point {idx} of [{lower}, {upper}) at R={r} left the domain: {coord}"
+                );
                 assert_eq!(
-                    recovered,
+                    grid.origcoord_to_grididx(&[coord]).unwrap(),
                     vec![idx],
-                    "Round-trip failed for idx={} with R={}",
-                    idx,
-                    r
+                    "Round-trip failed for idx={idx} of [{lower}, {upper}) with R={r}"
                 );
             }
         }
+        assert!(
+            accepted > 0,
+            "no resolution accepted for [{lower}, {upper})"
+        );
+    }
+}
+
+#[test]
+fn test_build_rejects_grid_finer_than_f64_resolution() {
+    // Reported in issue #4: the round trip silently returned n +- 1 here.
+    let cases: Vec<(f64, f64, usize)> = vec![
+        (-1.5, 1.5, 52),
+        (-512.0, 512.0, 52),
+        (1e10, 1e10 + 1.0, 20),
+        (1e15, 1e15 + 1.0, 10),
+        (0.0, 1.0, 51),
+        (1e12, 1e12 + 1e6, 31),
+        // Same defect class: a grid point leaves the domain in f64, or the
+        // endpoint does not map back to the last index.
+        (0.0, 73.0 * f64::from_bits(1), 4),
+        (-1e308, 1e308, 1),
+    ];
+    for (lower, upper, r) in cases {
+        let result = DiscretizedGrid::builder(&[r])
+            .with_lower_bound(&[lower])
+            .with_upper_bound(&[upper])
+            .build();
+        assert!(
+            matches!(
+                result,
+                Err(QuanticsGridError::GridNotRepresentable { dim: 0, .. })
+            ),
+            "[{lower:e}, {upper:e}) at R={r} should be rejected, got {result:?}"
+        );
+    }
+
+    // An included endpoint can hit the same limit while its step looks resolvable.
+    let endpoint_case = DiscretizedGrid::builder(&[4])
+        .with_bounds(0.0, 72.0 * f64::from_bits(1))
+        .include_endpoint(true)
+        .build();
+    assert!(
+        matches!(
+            endpoint_case,
+            Err(QuanticsGridError::GridNotRepresentable { dim: 0, .. })
+        ),
+        "subnormal endpoint grid should be rejected, got {endpoint_case:?}"
+    );
+
+    // The highest supported resolution documented in the crate docs builds.
+    let supported: Vec<(f64, f64, usize)> = vec![
+        (-1.5, 1.5, 51),
+        (-512.0, 512.0, 51),
+        (1e10, 1e10 + 1.0, 17),
+        (0.0, 1.0, 50),
+        (-std::f64::consts::PI, std::f64::consts::PI, 51),
+        (1e12, 1e12 + 1e6, 30),
+        (0.3, 10.3, 50),
+    ];
+    for (lower, upper, r) in supported {
+        assert!(
+            DiscretizedGrid::builder(&[r])
+                .with_lower_bound(&[lower])
+                .with_upper_bound(&[upper])
+                .build()
+                .is_ok(),
+            "[{lower:e}, {upper:e}) at R={r} should build"
+        );
+    }
+}
+
+#[test]
+fn test_include_endpoint_coordinates_stay_in_domain() {
+    let cases: Vec<(f64, f64, usize)> = vec![
+        (-1.0, 0.1, 1),
+        (-1.0, 0.2, 1),
+        (0.0, 1.0, 4),
+        (-1.0, 1.0, 12),
+        (0.1, 0.2, 8),
+    ];
+    for (lower, upper, r) in cases {
+        let grid = DiscretizedGrid::builder(&[r])
+            .with_lower_bound(&[lower])
+            .with_upper_bound(&[upper])
+            .include_endpoint(true)
+            .build()
+            .unwrap();
+        let max_idx = 1usize << r;
+
+        for idx in 0..max_idx {
+            let coord = grid.grididx_to_origcoord(&[idx]).unwrap()[0];
+            assert!(
+                coord >= lower && coord <= upper,
+                "[{lower}, {upper}] endpoint grid at R={r}: index {idx} -> {coord} left the domain"
+            );
+            assert_eq!(
+                grid.origcoord_to_grididx(&[coord]).unwrap(),
+                vec![idx],
+                "endpoint round-trip failed for idx={idx} of [{lower}, {upper}] at R={r}"
+            );
+        }
+        // The included endpoint is the upper bound itself.
+        assert_eq!(grid.grididx_to_origcoord(&[max_idx - 1]).unwrap()[0], upper);
+        assert_eq!(grid.grid_max(), vec![upper]);
+    }
+}
+
+#[test]
+fn test_origcoord_to_grididx_ties_and_upper_edge() {
+    // [-8, 8) at R = 3: grid points -8, -6, ..., 4, 6 with step 2.
+    let grid = DiscretizedGrid::builder(&[3])
+        .with_bounds(-8.0, 8.0)
+        .build()
+        .unwrap();
+
+    // Nearest grid point; halfway (normalized index x.5, always non-negative)
+    // rounds away from zero, i.e. to the larger index.
+    assert_eq!(grid.origcoord_to_grididx(&[-8.0]).unwrap(), vec![0]);
+    assert_eq!(grid.origcoord_to_grididx(&[-7.5]).unwrap(), vec![0]);
+    assert_eq!(grid.origcoord_to_grididx(&[-7.0]).unwrap(), vec![1]);
+    assert_eq!(grid.origcoord_to_grididx(&[-6.5]).unwrap(), vec![1]);
+    assert_eq!(grid.origcoord_to_grididx(&[5.0]).unwrap(), vec![7]);
+
+    // The grid is not periodic: the tail below `upper_bound` keeps the last index.
+    for x in [7.0, 7.5, 8.0 - 1e-12] {
+        assert_eq!(grid.origcoord_to_grididx(&[x]).unwrap(), vec![7]);
+    }
+
+    // Outside the half-open domain the conversion still fails on both sides.
+    for x in [-8.001, 8.0] {
+        assert!(
+            matches!(
+                grid.origcoord_to_grididx(&[x]),
+                Err(QuanticsGridError::CoordinateOutOfBounds { .. })
+            ),
+            "{x} should be out of bounds"
+        );
     }
 }
 
@@ -1046,12 +1176,14 @@ fn test_quanticsfunction_complex_base3() {
 
 // =============================================================================
 // Ported from: grid_tests.jl - "1D grid (large R)"
+// Index conversion only; R=62 coordinates are not representable in f64 and the
+// `DiscretizedGrid` builder rejects them (see `GridNotRepresentable`).
 // =============================================================================
 
 #[test]
 fn test_1d_large_r() {
     let r: usize = 62;
-    let grid = DiscretizedGrid::builder(&[r]).build().unwrap();
+    let grid = InherentDiscreteGrid::builder(&[r]).build().unwrap();
     let max_idx = 1usize << r;
     let quantics = grid.grididx_to_quantics(&[max_idx - 1]).unwrap();
     assert_eq!(quantics, vec![1usize; r]);
@@ -1065,7 +1197,7 @@ fn test_1d_large_r() {
 fn test_2d_large_r() {
     let r: usize = 62;
     let d: usize = 2;
-    let grid = DiscretizedGrid::builder(&[r, r])
+    let grid = InherentDiscreteGrid::builder(&[r, r])
         .with_base(2)
         .build()
         .unwrap();
@@ -1639,7 +1771,7 @@ fn test_boundary_error_handling() {
 #[test]
 fn test_large_grids() {
     let r: usize = 62;
-    let grid = DiscretizedGrid::builder(&[r]).build().unwrap();
+    let grid = InherentDiscreteGrid::builder(&[r]).build().unwrap();
     let max_idx = 1usize << r;
     let quantics = grid.grididx_to_quantics(&[max_idx - 1]).unwrap();
     assert_eq!(quantics, vec![1usize; r]);
@@ -2582,7 +2714,7 @@ fn test_extreme_base_values() {
 #[test]
 fn test_maximum_r_values() {
     let large_r: usize = 58;
-    let grid = DiscretizedGrid::builder(&[large_r]).build().unwrap();
+    let grid = InherentDiscreteGrid::builder(&[large_r]).build().unwrap();
 
     // Min quantics
     let min_q = vec![0usize; large_r];
