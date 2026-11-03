@@ -3572,3 +3572,63 @@ fn test_fp_boundary_coord_generation() {
         }
     }
 }
+
+// =============================================================================
+// origcoord_to_grididx_into / grid_step_ref (#5)
+// =============================================================================
+
+#[test]
+fn test_origcoord_to_grididx_into_matches_allocating_form() {
+    let grid = DiscretizedGrid::builder(&[4, 3])
+        .with_lower_bound(&[0.0, -1.0])
+        .with_upper_bound(&[1.0, 1.0])
+        .build()
+        .unwrap();
+
+    // one value per dimension
+    let coord = [0.6, 0.1];
+    let expected = grid.origcoord_to_grididx(&coord).unwrap();
+    let mut out = vec![usize::MAX; grid.ndims()];
+    grid.origcoord_to_grididx_into(&coord, &mut out).unwrap();
+    assert_eq!(out, expected);
+
+    // broadcast scalar
+    let expected = grid.origcoord_to_grididx(&[0.25]).unwrap();
+    let mut out = vec![usize::MAX; grid.ndims()];
+    grid.origcoord_to_grididx_into(&[0.25], &mut out).unwrap();
+    assert_eq!(out, expected);
+}
+
+#[test]
+fn test_origcoord_to_grididx_into_reports_the_same_errors() {
+    let grid = DiscretizedGrid::builder(&[4, 4]).build().unwrap();
+
+    // wrong number of output slots
+    let mut out = vec![0usize; grid.ndims() - 1];
+    assert!(matches!(
+        grid.origcoord_to_grididx_into(&[0.5, 0.5], &mut out),
+        Err(QuanticsGridError::DimensionMismatch { .. })
+    ));
+
+    // wrong number of coordinates
+    let mut out = vec![0usize; grid.ndims()];
+    assert!(matches!(
+        grid.origcoord_to_grididx_into(&[0.5, 0.5, 0.5], &mut out),
+        Err(QuanticsGridError::DimensionMismatch { .. })
+    ));
+
+    // out of bounds reports the first offending dimension
+    let err = grid
+        .origcoord_to_grididx_into(&[0.5, 2.0], &mut out)
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        QuanticsGridError::CoordinateOutOfBounds { dim: 1, .. }
+    ));
+}
+
+#[test]
+fn test_grid_step_ref_matches_grid_step() {
+    let grid = DiscretizedGrid::builder(&[4, 3]).build().unwrap();
+    assert_eq!(grid.grid_step_ref(), grid.grid_step().as_slice());
+}
