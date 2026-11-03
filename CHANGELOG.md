@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased]
+
+### Coordinate conversion without allocation
+
+`origcoord_to_grididx` allocated several times per call — an expanded copy of
+the coordinate, a copy of the step vector and the result — and the TCI drivers
+convert one coordinate per function evaluation (tensor4all/quanticsgrids-rs#5).
+The following are additive; the existing signatures are unchanged.
+
+- `DiscretizedGrid::origcoord_to_grididx_into(&self, coord: &[f64], out: &mut
+  [usize]) -> Result<()>` converts into a caller-provided buffer and never
+  allocates (asserted by `tests/no_alloc_conversions.rs`, which counts
+  allocations). `origcoord_to_grididx` is now a thin allocating wrapper over
+  it, so the conversion rule, the broadcast of a one-element `coord` and the
+  errors are identical.
+- `DiscretizedGrid::grid_step_ref(&self) -> &[f64]` borrows the step instead of
+  cloning it. `grid_step()` keeps its signature; returning a slice from it
+  would be a breaking change and is left to the next minor release.
+- A `origcoord_to_grididx` criterion group in `benches/conversions.rs`
+  compares the allocating and the `_into` forms (2D, `R = 8`: 15-16 ns vs
+  6.8 ns per call on an M5, criterion `--warm-up-time 0.3 --measurement-time
+  2`; a single microbenchmark, not a claim about a driver).
+
 ## [0.3.0] - 2026-10-21
 
 ### Breaking: grids that `f64` cannot resolve are rejected

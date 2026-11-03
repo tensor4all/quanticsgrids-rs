@@ -151,6 +151,25 @@ fn bench_unfolding_schemes(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_origcoord_to_grididx(c: &mut Criterion) {
+    let mut group = c.benchmark_group("origcoord_to_grididx");
+    let grid = DiscretizedGrid::builder(&[8, 8])
+        .with_lower_bound(&[0.0, 0.0])
+        .with_upper_bound(&[1.0, 1.0])
+        .build()
+        .unwrap();
+    let coord = [0.6, 0.1];
+    let mut out = vec![0usize; grid.ndims()];
+
+    group.bench_function("allocating_2D_R8", |b| {
+        b.iter(|| grid.origcoord_to_grididx(black_box(&coord)))
+    });
+    group.bench_function("into_2D_R8", |b| {
+        b.iter(|| grid.origcoord_to_grididx_into(black_box(&coord), &mut out))
+    });
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_grididx_to_quantics,
@@ -158,5 +177,6 @@ criterion_group!(
     bench_origcoord_conversions,
     bench_roundtrip,
     bench_unfolding_schemes,
+    bench_origcoord_to_grididx,
 );
 criterion_main!(benches);

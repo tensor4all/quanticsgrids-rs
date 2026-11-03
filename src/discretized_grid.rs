@@ -144,6 +144,14 @@ impl DiscretizedGrid {
         self.step.clone()
     }
 
+    /// Grid step size in each dimension, borrowed from the grid
+    ///
+    /// This is the non-allocating form of [`Self::grid_step`], for callers that
+    /// read the step on the hot path.
+    pub fn grid_step_ref(&self) -> &[f64] {
+        &self.step
+    }
+
     /// Minimum grid coordinates (same as lower_bound)
     pub fn grid_min(&self) -> &[f64] {
         &self.lower_bound
@@ -229,12 +237,43 @@ impl DiscretizedGrid {
     /// [`QuanticsGridError::DimensionMismatch`] when `coord` has a length other
     /// than one or the number of dimensions.
     pub fn origcoord_to_grididx(&self, coord: &[f64]) -> Result<Vec<usize>> {
-        let coord = self.expand_coord(coord)?;
-        self.validate_origcoord(&coord)?;
+        let mut grididx = vec![0usize; self.ndims()];
+        self.origcoord_to_grididx_into(coord, &mut grididx)?;
+        Ok(grididx)
+    }
 
-        Ok((0..self.ndims())
-            .map(|dim| self.grididx_at(dim, coord[dim]))
-            .collect())
+    /// Convert original coordinates to grid indices (0-indexed), writing into
+    /// `out`.
+    ///
+    /// This is the non-allocating form of [`Self::origcoord_to_grididx`]: it
+    /// never allocates and never copies `coord`, which matters on the TCI paths
+    /// that convert one coordinate per function evaluation. The conversion rule,
+    /// the broadcast of a one-element `coord`, and the errors are those of
+    /// [`Self::origcoord_to_grididx`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`QuanticsGridError::DimensionMismatch`] when `coord` has a length
+    /// other than one or the number of dimensions, or when `out` is not one
+    /// element per dimension, and [`QuanticsGridError::CoordinateOutOfBounds`]
+    /// for the first out-of-bounds coordinate in dimension order. On error the
+    /// contents of `out` are unspecified.
+    pub fn origcoord_to_grididx_into(&self, coord: &[f64], out: &mut [usize]) -> Result<()> {
+        let ndims = self.ndims();
+        if out.len() != ndims {
+            return Err(QuanticsGridError::DimensionMismatch {
+                expected: ndims,
+                actual: out.len(),
+            });
+        }
+        check_coord_len(coord.len(), ndims)?;
+
+        for (dim, slot) in out.iter_mut().enumerate() {
+            let c = coord_at(coord, dim);
+            self.validate_origcoord_dim(dim, c)?;
+            *slot = self.grididx_at(dim, c);
+        }
+        Ok(())
     }
 
     /// Convert original coordinates to quantics indices (0-indexed).
@@ -292,28 +331,26 @@ impl DiscretizedGrid {
         Ok(())
     }
 
-    fn validate_origcoord(&self, coord: &[f64]) -> Result<()> {
-        for (dim, (((&c, &lo), &hi), &include_endpoint)) in coord
-            .iter()
-            .zip(self.lower_bound.iter())
-            .zip(self.upper_bound.iter())
-            .zip(self.include_endpoint.iter())
-            .enumerate()
-        {
-            let out_of_bounds = if include_endpoint {
-                c < lo || c > hi
-            } else {
-                c < lo || c >= hi
-            };
+    /// Check one coordinate against the domain of one dimension.
+    fn validate_origcoord_dim(&self, dim: usize, c: f64) -> Result<()> {
+        let (lo, hi, include_endpoint) = (
+            self.lower_bound[dim],
+            self.upper_bound[dim],
+            self.include_endpoint[dim],
+        );
+        let out_of_bounds = if include_endpoint {
+            c < lo || c > hi
+        } else {
+            c < lo || c >= hi
+        };
 
-            if out_of_bounds {
-                return Err(QuanticsGridError::CoordinateOutOfBounds {
-                    dim,
-                    value: c,
-                    lower: lo,
-                    upper: hi,
-                });
-            }
+        if out_of_bounds {
+            return Err(QuanticsGridError::CoordinateOutOfBounds {
+                dim,
+                value: c,
+                lower: lo,
+                upper: hi,
+            });
         }
         Ok(())
     }
@@ -332,19 +369,28 @@ impl DiscretizedGrid {
             })
         }
     }
+}
 
-    fn expand_coord(&self, coord: &[f64]) -> Result<Vec<f64>> {
-        let ndims = self.ndims();
-        if coord.len() == 1 && ndims > 1 {
-            Ok(vec![coord[0]; ndims])
-        } else if coord.len() == ndims {
-            Ok(coord.to_vec())
-        } else {
-            Err(QuanticsGridError::DimensionMismatch {
-                expected: ndims,
-                actual: coord.len(),
-            })
-        }
+/// Coordinate of `dim`, broadcasting a one-element input without copying it.
+#[inline]
+fn coord_at(coord: &[f64], dim: usize) -> f64 {
+    if coord.len() == 1 {
+        coord[0]
+    } else {
+        coord[dim]
+    }
+}
+
+/// Check that a coordinate input is either one value or one value per dimension.
+#[inline]
+fn check_coord_len(len: usize, ndims: usize) -> Result<()> {
+    if len == 1 || len == ndims {
+        Ok(())
+    } else {
+        Err(QuanticsGridError::DimensionMismatch {
+            expected: ndims,
+            actual: len,
+        })
     }
 }
 
