@@ -21,3 +21,9 @@ rand = "0.9"
 [[bench]]
 name = "conversions"
 harness = false
+
+[profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0
