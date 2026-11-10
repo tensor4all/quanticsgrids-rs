@@ -21,6 +21,7 @@ This file only records what is specific to `quanticsgrids-rs`:
 
 ## Anything here that departs from the shared rules
 
-One does: the `msrv` gate is not run, and no `rust-version` is declared for it to hold CI to. Declaring one and adding
-the job is the way to close that gap; this file records the state and does not exempt the repository from the other
-gates.
+Two do: the `msrv` gate is not run, and no `rust-version` is declared for it to hold CI to; and the `docs` gate is
+not warning-denying, because the `docs` job runs the executable book examples and `mdbook build` but nothing runs
+`cargo doc` or `RUSTDOCFLAGS="-D warnings"`. Declaring an MSRV and adding the job, and adding the rustdoc build, are
+the way to close those gaps; this file records the state and does not exempt the repository from the other gates.
